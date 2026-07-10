@@ -1,0 +1,61 @@
+appId: com.emadjumaah.jami
+productName: الجامع
+copyright: © 2026 Emad Jumaah — donated as صدقة جارية
+
+directories:
+  output: release
+  buildResources: build
+
+# App code (Electron shell). The server, shared schemas, dashboard build and
+# node_modules are shipped as unpacked resources so the child server process
+# can resolve @monlite normally (bundling monlite breaks its asset resolution).
+files:
+  - electron/**/*
+  - package.json
+
+extraResources:
+  - from: ../../server
+    to: server
+  - from: ../../shared
+    to: shared
+  - from: ../../apps/dashboard/dist
+    to: dashboard
+  - from: ../../node_modules
+    to: node_modules
+    filter:
+      - "**/*"
+      - "!.bin"
+      - "!.cache"
+
+# The two databases (~4.5 GB) are downloaded on first run from Hugging Face —
+# never bundled into the installer.
+
+mac:
+  category: public.app-category.reference
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  artifactName: "Jami-${version}-mac-${arch}.${ext}"
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: "Jami-${version}-win-${arch}.${ext}"
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+
+linux:
+  category: Education
+  target:
+    - target: AppImage
+      arch: [x64]
+  artifactName: "Jami-${version}-linux-${arch}.${ext}"
+
+publish:
+  provider: github
+  owner: emadjumaah
+  repo: hadith

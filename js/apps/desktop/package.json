@@ -1,0 +1,19 @@
+{
+  "name": "jami-desktop",
+  "productName": "الجامع",
+  "version": "0.1.0",
+  "description": "الجامع — Hadith Knowledge Graph desktop app",
+  "author": "Emad Jumaah",
+  "license": "MIT",
+  "type": "module",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "sqlite-check": "node -e \"process.env.ELECTRON_RUN_AS_NODE='1'\" && ELECTRON_RUN_AS_NODE=1 electron -e \"require('node:sqlite'); console.log('node:sqlite OK')\""
+  },
+  "devDependencies": {
+    "electron": "^37.0.0",
+    "electron-builder": "^25.1.8"
+  }
+}

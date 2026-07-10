@@ -1,0 +1,76 @@
+name: Desktop release
+
+# Build the الجامع desktop app for macOS, Windows and Linux and attach the
+# installers to a GitHub Release. Trigger by pushing a version tag:
+#   git tag v0.1.0 && git push origin v0.1.0
+# Or run manually from the Actions tab (build-only, no publish).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # Fail fast if Electron's bundled Node cannot open SQLite — the whole app
+  # depends on node:sqlite (used by the server and monlite).
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Install Electron
+        working-directory: js/apps/desktop
+        run: npm install
+      - name: Verify node:sqlite is available in Electron
+        working-directory: js/apps/desktop
+        env: { ELECTRON_RUN_AS_NODE: "1" }
+        # ELECTRON_RUN_AS_NODE runs Electron's bundled Node headlessly — no display needed
+        run: |
+          npx electron -e "const s=require('node:sqlite'); new s.DatabaseSync(':memory:').exec('create table t(x)'); console.log('node:sqlite OK in Electron', process.versions.electron, 'node', process.versions.node)"
+
+  build:
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+
+      - name: Build dashboard
+        working-directory: js/apps/dashboard
+        run: |
+          npm install
+          npm run build
+
+      - name: Install server runtime deps (flat, production)
+        working-directory: js
+        run: npm install --omit=dev
+
+      - name: Install desktop deps
+        working-directory: js/apps/desktop
+        run: npm install
+
+      - name: Build & publish installers
+        working-directory: js/apps/desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
+
+      - name: Upload build artifacts (manual runs)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: jami-${{ matrix.os }}
+          path: |
+            js/apps/desktop/release/*.dmg
+            js/apps/desktop/release/*.exe
+            js/apps/desktop/release/*.AppImage
+          if-no-files-found: ignore

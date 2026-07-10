@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<title>الإعدادات</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 26px;
+    font-family: "IBM Plex Sans Arabic", system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: #f9f9f7; color: #0b0b0b;
+  }
+  @media (prefers-color-scheme: dark) { body { background: #1a1a19; color: #f4f4f2; } }
+  h2 { margin: 0 0 4px; font-size: 18px; }
+  p { color: #6e6c66; font-size: 13.5px; line-height: 1.7; margin: 0 0 18px; }
+  @media (prefers-color-scheme: dark) { p { color: #b7b6ad; } }
+  label { display: block; font-size: 13px; margin-bottom: 6px; }
+  input {
+    width: 100%; padding: 10px 12px; border-radius: 9px; border: 1px solid #d8d7d0;
+    background: #fff; color: inherit; font: inherit; font-size: 14px;
+  }
+  @media (prefers-color-scheme: dark) { input { background: #232322; border-color: #3a3a37; } }
+  input:focus { outline: 2px solid #0d5c50; border-color: #0d5c50; }
+  a { color: #0d5c50; }
+  @media (prefers-color-scheme: dark) { a { color: #35a08f; } }
+  .row { display: flex; gap: 10px; justify-content: flex-start; margin-top: 22px; }
+  button {
+    border: 0; border-radius: 9px; padding: 9px 22px; font: inherit; font-size: 14px; cursor: pointer;
+  }
+  .save { background: #0d5c50; color: #fff; }
+  .cancel { background: transparent; color: inherit; border: 1px solid #d8d7d0; }
+  .ok { color: #0d5c50; font-size: 13px; margin-top: 12px; min-height: 18px; }
+</style>
+</head>
+<body>
+  <h2>مفتاح Gemini API</h2>
+  <p>
+    يُستخدم للبحث الدلالي والمحادثة البحثية فقط. بقية التطبيق يعمل بدونه.
+    المفتاح يُحفظ على جهازك فقط ولا يُرسل إلا إلى Google مباشرة.<br/>
+    احصل على مفتاح مجاني من
+    <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">aistudio.google.com/apikey</a>.
+  </p>
+  <label for="key">المفتاح</label>
+  <input id="key" type="password" placeholder="AIza… أو AQ.…" autocomplete="off" spellcheck="false" />
+  <div class="ok" id="ok"></div>
+  <div class="row">
+    <button class="save" id="save">حفظ وإعادة التشغيل</button>
+    <button class="cancel" id="cancel">إغلاق</button>
+  </div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  window.jami.on("settings:load", (s) => { $("key").value = s.geminiKey || ""; });
+  $("save").onclick = async () => {
+    $("save").disabled = true;
+    await window.jami.saveSettings({ geminiKey: $("key").value.trim() });
+    $("ok").textContent = "تم الحفظ — يُعاد تشغيل المحرك.";
+    setTimeout(() => window.close(), 900);
+  };
+  $("cancel").onclick = () => window.close();
+</script>
+</body>
+</html>

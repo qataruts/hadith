@@ -15,6 +15,8 @@ archive/
 # dependencies & builds
 node_modules/
 dist/
+release/
+package-lock.json
 __pycache__/
 *.pyc
 

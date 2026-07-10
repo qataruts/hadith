@@ -68,9 +68,11 @@ Text markup is relational: narrator mentions, matn boundaries, and Quran quotes
 are `[start,end)` offsets into plain text — renderers rebuild rich text, and
 matn-only slices feed search and embeddings directly.
 
-> **Note on data availability:** this repository contains the full pipeline and
-> application code. The source dump and the built databases (~6 GB) are not
-> distributed here.
+> **Data availability:** both built databases are freely available as a public
+> dataset — **https://huggingface.co/datasets/emadjumaah/hadith-kg**
+> (`hadith-kg.db` ~1.6 GB, `hadith-app.db` ~2.9 GB, CC-BY-4.0). This project is
+> offered as an open donation (صدقة جارية) for students and scholars of hadith.
+> Only the raw 2017 source dump is not distributed.
 
 ## Build pipeline
 
@@ -121,8 +123,29 @@ pnpm build                  # → dist/, served by the API server
 ```
 
 Vanilla-JS SPA (no framework), hash routing, RTL, Amiri + IBM Plex Sans Arabic,
-light/dark themes, ~11 KB gzipped. Charts follow a validated accessible palette;
+light/dark themes, ~12 KB gzipped. Charts follow a validated accessible palette;
 gradings and narrator ranks always pair color with text.
+
+## Desktop app (الجامع)
+
+A cross-platform Electron build that runs the whole platform locally — no server
+to host. It launches the API server as a child process and, on first run,
+downloads the two databases from the Hugging Face dataset into the OS app-data
+folder (resumable). A settings screen stores the user's own Gemini API key
+(semantic search + chat; the rest works offline without it).
+
+- Source: `js/apps/desktop/` (Electron shell) — reuses the server and dashboard unchanged.
+- **Releases are built by CI**, not locally: push a tag and GitHub Actions builds
+  macOS / Windows / Linux installers and attaches them to a Release.
+
+  ```sh
+  git tag v0.1.0 && git push origin v0.1.0
+  ```
+
+  `.github/workflows/desktop-release.yml` runs a `node:sqlite` preflight, builds
+  the dashboard, installs flat production deps, and runs `electron-builder` on
+  each OS. Manual runs (workflow_dispatch) build installers as artifacts without
+  publishing.
 
 ## Operations notes
 
