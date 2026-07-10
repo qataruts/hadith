@@ -1,0 +1,45 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      '@monlite/core':
+        specifier: ^2.11.0
+        version: 2.11.0
+      '@monlite/fts':
+        specifier: ^0.7.1
+        version: 0.7.1
+
+packages:
+
+  '@monlite/core@2.11.0':
+    resolution: {integrity: sha512-xXyfyNmeVsVayT5ZYfMFtb8aysXQJmPpFAi5vGkoHFpD5JMqXUmmU56WP+oiHqnF2ESxa5iM/kDBKWCk/J+W2A==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      better-sqlite3: '>=9'
+      better-sqlite3-multiple-ciphers: '>=9'
+    peerDependenciesMeta:
+      better-sqlite3:
+        optional: true
+      better-sqlite3-multiple-ciphers:
+        optional: true
+
+  '@monlite/fts@0.7.1':
+    resolution: {integrity: sha512-qNqqiOnicn+0nQioyIe3JTJsuhJSDzJ6AgD5ZhE6ySveH+qa6kCspppEDoBB7MVH1OxRvwEAR4QiqCK7hThZXw==}
+    engines: {node: '>=18'}
+
+snapshots:
+
+  '@monlite/core@2.11.0': {}
+
+  '@monlite/fts@0.7.1':
+    dependencies:
+      '@monlite/core': 2.11.0
+    transitivePeerDependencies:
+      - better-sqlite3
+      - better-sqlite3-multiple-ciphers

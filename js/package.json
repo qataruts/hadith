@@ -1,0 +1,17 @@
+{
+  "name": "hadith-kg-workspace",
+  "version": "0.0.0",
+  "private": true,
+  "description": "JS workspace for the Hadith Knowledge Graph — app-db converter, API package, dashboard",
+  "type": "module",
+  "scripts": {
+    "convert": "node --max-old-space-size=6144 scripts/convert-to-app-db.mjs",
+    "embed": "node scripts/embed-groups.mjs",
+    "serve": "bash server/serve.sh"
+  },
+  "packageManager": "pnpm@10.30.3",
+  "dependencies": {
+    "@monlite/core": "^2.11.0",
+    "@monlite/fts": "^0.7.1"
+  }
+}

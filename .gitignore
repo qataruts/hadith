@@ -1,0 +1,25 @@
+# secrets — never commit
+.env
+*.env
+
+# databases & built artifacts (multi-GB, not distributed via git)
+*.db
+*.db.bak
+*.db-wal
+*.db-shm
+*.pre-clean
+
+# source data archive (not distributed)
+archive/
+
+# dependencies & builds
+node_modules/
+dist/
+__pycache__/
+*.pyc
+
+# editor / OS
+.DS_Store
+*.code-workspace
+.vscode/
+.idea/
