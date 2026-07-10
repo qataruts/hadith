@@ -68,7 +68,7 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
         with:
-          name: jami-${{ matrix.os }}
+          name: jami-${{ matrix.os }}-${{ github.run_id }}
           path: |
             js/apps/desktop/release/*.dmg
             js/apps/desktop/release/*.exe

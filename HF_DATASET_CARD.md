@@ -43,7 +43,7 @@ table of each database and in the project README.
 
 The full open-source platform (API server, RTL dashboard with isnad-tree
 visualizations, semantic search, cited RAG chat):
-**https://github.com/emadjumaah/hadith**
+**https://github.com/qataruts/hadith**
 
 ## Notes for researchers
 

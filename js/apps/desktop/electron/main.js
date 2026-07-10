@@ -228,7 +228,7 @@ function buildMenu() {
     {
       label: "مساعدة",
       submenu: [
-        { label: "المستودع على GitHub", click: () => shell.openExternal("https://github.com/emadjumaah/hadith") },
+        { label: "المستودع على GitHub", click: () => shell.openExternal("https://github.com/qataruts/hadith") },
         { label: "قاعدة البيانات على Hugging Face", click: () => shell.openExternal("https://huggingface.co/datasets/emadjumaah/hadith-kg") },
       ],
     },

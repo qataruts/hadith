@@ -57,5 +57,5 @@ linux:
 
 publish:
   provider: github
-  owner: emadjumaah
+  owner: qataruts
   repo: hadith
