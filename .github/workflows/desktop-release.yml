@@ -1,9 +1,10 @@
 name: Desktop release
 
-# Build the الجامع desktop app for macOS, Windows and Linux and attach the
-# installers to a GitHub Release. Trigger by pushing a version tag:
+# Build the الجامع desktop app for macOS, Windows and Linux. Every run uploads
+# the installers as downloadable artifacts; pushing a version tag additionally
+# attaches them to a GitHub Release.
 #   git tag v0.1.0 && git push origin v0.1.0
-# Or run manually from the Actions tab (build-only, no publish).
+# Or run manually from the Actions tab (build-only).
 
 on:
   push:
@@ -14,8 +15,8 @@ permissions:
   contents: write
 
 jobs:
-  # Fail fast if Electron's bundled Node cannot open SQLite — the whole app
-  # depends on node:sqlite (used by the server and monlite).
+  # Fail fast if Electron's bundled Node cannot open SQLite — the app depends on
+  # node:sqlite (used by the server and monlite).
   preflight:
     runs-on: ubuntu-latest
     steps:
@@ -28,9 +29,7 @@ jobs:
       - name: Verify node:sqlite is available in Electron
         working-directory: js/apps/desktop
         env: { ELECTRON_RUN_AS_NODE: "1" }
-        # ELECTRON_RUN_AS_NODE runs Electron's bundled Node headlessly — no display needed
-        run: |
-          npx electron -e "const s=require('node:sqlite'); new s.DatabaseSync(':memory:').exec('create table t(x)'); console.log('node:sqlite OK in Electron', process.versions.electron, 'node', process.versions.node)"
+        run: npx electron -e "const s=require('node:sqlite'); new s.DatabaseSync(':memory:').exec('create table t(x)'); console.log('node:sqlite OK in Electron', process.versions.electron, 'node', process.versions.node)"
 
   build:
     needs: preflight
@@ -58,19 +57,33 @@ jobs:
         working-directory: js/apps/desktop
         run: npm install
 
-      - name: Build & publish installers
+      - name: Build installers (no publish)
         working-directory: js/apps/desktop
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
+        run: npx electron-builder --publish never
 
-      - name: Upload build artifacts (manual runs)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+      - name: Upload installers
         uses: actions/upload-artifact@v4
         with:
-          name: jami-${{ matrix.os }}-${{ github.run_id }}
+          name: jami-${{ matrix.os }}
           path: |
             js/apps/desktop/release/*.dmg
             js/apps/desktop/release/*.exe
             js/apps/desktop/release/*.AppImage
-          if-no-files-found: ignore
+          if-no-files-found: warn
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all installers
+        uses: actions/download-artifact@v4
+        with: { path: dist }
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*
+          fail_on_unmatched_files: false
+          generate_release_notes: true
