@@ -40,6 +40,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Tag must match package.json version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          V=$(node -p "require('./js/apps/desktop/package.json').version")
+          [ "v$V" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME != package version v$V"; exit 1; }
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
 
@@ -87,3 +93,14 @@ jobs:
           files: dist/**/*
           fail_on_unmatched_files: false
           generate_release_notes: true
+          body: |
+            **الجامع — الشبكة المعرفية للحديث الشريف** · تطبيق سطح مكتب يعمل محلياً بالكامل.
+
+            عند أول تشغيل يُنزّل التطبيق قاعدة المعرفة (~٤٫٥ غ.ب) مرة واحدة من Hugging Face.
+
+            **macOS:** التطبيق غير موقّع بعد — عند أول فتح: انقر بالزر الأيمن على التطبيق ثم «فتح» ثم «فتح» مرة أخرى.
+            **Windows:** إذا ظهر تحذير SmartScreen: «مزيد من المعلومات» ثم «تشغيل على أي حال».
+            **Linux:** `chmod +x` لملف AppImage ثم شغّله.
+
+            البحث الدلالي والمحادثة البحثية اختياريان ويحتاجان مفتاح Gemini مجانياً
+            (قائمة «ملف ← الإعدادات») — بقية التطبيق يعمل دون اتصال ودون مفتاح.

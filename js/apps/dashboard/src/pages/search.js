@@ -1,5 +1,5 @@
 import { api } from "../api.js";
-import { esc } from "../util.js";
+import { esc, keyErrorHtml } from "../util.js";
 import { hadithCard, groupCard, rawiCard } from "../components/cards.js";
 
 const MODES = [
@@ -15,7 +15,7 @@ export async function search({ params, render }) {
 
   const shellHtml = (resultsHtml) => `
     <form class="search-box" id="search-form" style="max-width:100%">
-      <input name="q" value="${esc(q)}" placeholder="ابحث…" autocomplete="off" />
+      <input name="q" value="${esc(q)}" placeholder="ابحث…" autocomplete="off" autofocus />
       <button>بحث</button>
     </form>
     <div class="mode-pills" style="justify-content:flex-start" id="search-modes">
@@ -31,9 +31,11 @@ export async function search({ params, render }) {
 
   let resultsHtml;
   if (mode === "semantic") {
-    const { hits, error } = await api.semanticGroups(q, 15);
+    let hits = [], error = null;
+    try { ({ hits, error } = await api.semanticGroups(q, 15)); }
+    catch (e) { error = String(e.message ?? e); }
     resultsHtml = error
-      ? `<div class="empty">${esc(error)}</div>`
+      ? `<div class="empty">${keyErrorHtml(error) ?? esc(error)}</div>`
       : hits.length
         ? `<div class="muted" style="margin-bottom:10px">معانٍ مرتبة بالتشابه الدلالي — كل معنى يجمع رواياته من كل الكتب</div>
            <div class="grid">${hits.map(groupCard).join("")}</div>`

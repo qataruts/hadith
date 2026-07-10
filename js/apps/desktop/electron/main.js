@@ -55,16 +55,30 @@ const dbReady = (f) => {
 };
 const allDbsReady = () => DB_FILES.every(dbReady);
 
-/** Stream a file from HF with resume (Range) + progress callbacks. */
+/** Stream a file from HF with resume (Range + If-Range/ETag) + progress. */
 async function downloadFile(file, onProgress) {
   const dest = dbPath(file.name);
   const part = dest + ".part";
+  const etagFile = part + ".etag";
   let start = 0;
   try { start = fs.statSync(part).size; } catch { /* fresh */ }
-  if (start > file.size) { await fsp.rm(part); start = 0; }
+  if (start > file.size) { await fsp.rm(part, { force: true }); start = 0; }
+  let etag = null;
+  try { etag = fs.readFileSync(etagFile, "utf8").trim() || null; } catch { /* none */ }
+  if (start && !etag) start = 0;   // can't validate an old .part → restart
 
-  const res = await fetch(file.url, start ? { headers: { Range: `bytes=${start}-` } } : {});
+  const headers = start ? { Range: `bytes=${start}-`, "If-Range": etag } : {};
+  const res = await fetch(file.url, { headers });
+  if (res.status === 416) {        // remote no longer honors our range → restart
+    await fsp.rm(part, { force: true });
+    await fsp.rm(etagFile, { force: true });
+    return downloadFile(file, onProgress);
+  }
   if (!res.ok && res.status !== 206) throw new Error(`HTTP ${res.status} for ${file.name}`);
+  if (start && res.status === 200) start = 0;  // remote changed → full body, overwrite
+  const newTag = res.headers.get("etag");
+  if (newTag) await fsp.writeFile(etagFile, newTag);
+
   const out = fs.createWriteStream(part, { flags: start ? "a" : "w" });
   let received = start;
   const reader = res.body.getReader();
@@ -77,12 +91,25 @@ async function downloadFile(file, onProgress) {
   }
   await new Promise((ok) => out.end(ok));
   if (fs.statSync(part).size !== file.size)
-    throw new Error(`${file.name}: size mismatch after download`);
+    throw new Error(`${file.name}: حجم غير مطابق بعد التنزيل`);
   await fsp.rename(part, dest);
+  await fsp.rm(etagFile, { force: true });
 }
 
 async function provisionDbs(send) {
   const total = DB_FILES.reduce((s, f) => s + f.size, 0);
+  // disk-space preflight: what's still missing + 1 GB working margin
+  const missing = DB_FILES.filter((f) => !dbReady(f)).reduce((s, f) => s + f.size, 0);
+  try {
+    const st = await fsp.statfs(DATA_DIR);
+    const free = st.bavail * st.bsize;
+    if (free < missing + 1_000_000_000)
+      throw new Error(
+        `المساحة الحرة غير كافية: يلزم ${(missing / 1e9).toFixed(1)} غ.ب تقريباً والمتاح ${(free / 1e9).toFixed(1)} غ.ب`);
+  } catch (e) {
+    if (String(e.message).includes("المساحة")) throw e;
+    /* statfs unsupported → skip preflight */
+  }
   let base = 0;
   for (const file of DB_FILES) {
     if (dbReady(file)) { base += file.size; continue; }
@@ -122,37 +149,68 @@ function freePort() {
   });
 }
 
+let serverCrashes = 0;
 async function startServer() {
   serverPort = await freePort();
   const key = readSettings().geminiKey || "";
-  serverProc = utilityProcess.fork(
+  const proc = utilityProcess.fork(
     res.server,
     ["--app", dbPath("hadith-app.db"), "--kg", dbPath("hadith-kg.db"),
-     "--static", res.static, "--port", String(serverPort)],
+     "--static", res.static, "--port", String(serverPort),
+     "--host", "127.0.0.1"],
     { env: { ...process.env, GEMINI_API_KEY: key }, stdio: "pipe" },
   );
-  serverProc.stdout?.on("data", (d) => process.stdout.write(`[server] ${d}`));
-  serverProc.stderr?.on("data", (d) => process.stderr.write(`[server] ${d}`));
+  serverProc = proc;
+  proc.stdout?.on("data", (d) => process.stdout.write(`[server] ${d}`));
+  proc.stderr?.on("data", (d) => process.stderr.write(`[server] ${d}`));
+  // crash monitor: unexpected exit → restart (twice), then error screen
+  proc.on("exit", async (code) => {
+    if (proc !== serverProc) return;      // deliberate stop/restart
+    serverProc = null;
+    if (serverCrashes++ < 2) {
+      try {
+        const base = await startServer();
+        if (win && !win.isDestroyed()) win.loadURL(base);
+        return;
+      } catch { /* fall through to error screen */ }
+    }
+    if (win && !win.isDestroyed()) {
+      await win.loadFile(path.join(HERE, "ui", "loading.html"));
+      send("dl:error", { error: `توقف المحرك بشكل غير متوقع (رمز ${code}).` });
+    }
+  });
 
   const base = `http://127.0.0.1:${serverPort}`;
   for (let i = 0; i < 120; i++) {
     try {
       const r = await fetch(`${base}/api/stats`);
-      if (r.ok) return base;
+      if (r.ok) { serverCrashes = 0; return base; }
     } catch { /* not up yet */ }
     await new Promise((r) => setTimeout(r, 500));
   }
-  throw new Error("server did not become ready");
+  throw new Error("لم يصبح المحرك جاهزاً في الوقت المتوقع");
 }
 
 function stopServer() {
-  try { serverProc?.kill(); } catch { /* already gone */ }
-  serverProc = null;
+  const p = serverProc;
+  serverProc = null;                      // marks the exit as deliberate
+  try { p?.kill(); } catch { /* already gone */ }
 }
-async function restartServer() {
-  stopServer();
-  const base = await startServer();
-  win?.loadURL(base);
+let restartChain = Promise.resolve();
+function restartServer() {
+  restartChain = restartChain.then(async () => {
+    stopServer();
+    try {
+      const base = await startServer();
+      if (win && !win.isDestroyed()) win.loadURL(base);
+    } catch (e) {
+      if (win && !win.isDestroyed()) {
+        await win.loadFile(path.join(HERE, "ui", "loading.html"));
+        send("dl:error", { error: String(e.message ?? e) });
+      }
+    }
+  });
+  return restartChain;
 }
 
 // ── windows ────────────────────────────────────────────────────────────────────
@@ -166,29 +224,45 @@ function createWindow() {
   return win;
 }
 
-const send = (channel, payload) => win?.webContents.send(channel, payload);
+const send = (channel, payload) => {
+  if (win && !win.isDestroyed() && !win.webContents.isDestroyed())
+    win.webContents.send(channel, payload);
+};
 
+let booting = false;
 async function boot() {
-  createWindow();
-  if (!allDbsReady()) {
-    await win.loadFile(path.join(HERE, "ui", "loading.html"));
-    win.webContents.once("did-finish-load", () => send("dl:need", { files: DB_FILES }));
-    try {
-      await new Promise((r) => setTimeout(r, 300));
-      await provisionDbs(send);
-      send("dl:done", {});
-    } catch (e) {
-      send("dl:error", { error: String(e.message ?? e) });
+  if (booting) return;                          // retry button / activate re-entry
+  booting = true;
+  try {
+    if (!win || win.isDestroyed()) createWindow();
+    win.focus();
+    if (!allDbsReady()) {
+      await win.loadFile(path.join(HERE, "ui", "loading.html"));
+      send("dl:need", { files: DB_FILES });     // page is loaded — deliver directly
+      try {
+        await provisionDbs(send);
+        send("dl:done", {});
+      } catch (e) {
+        send("dl:error", { error: String(e.message ?? e) });
+        return;
+      }
+    }
+    if (serverProc && serverPort) {           // server already running (mac re-activate)
+      await win.loadURL(`http://127.0.0.1:${serverPort}`);
       return;
     }
-  }
-  send("dl:starting", {});
-  try {
-    const base = await startServer();
-    await win.loadURL(base);
-  } catch (e) {
-    await win.loadFile(path.join(HERE, "ui", "loading.html"));
-    send("dl:error", { error: String(e.message ?? e) });
+    send("dl:starting", {});
+    try {
+      const base = await startServer();
+      if (win && !win.isDestroyed()) await win.loadURL(base);
+    } catch (e) {
+      if (win && !win.isDestroyed()) {
+        await win.loadFile(path.join(HERE, "ui", "loading.html"));
+        send("dl:error", { error: String(e.message ?? e) });
+      }
+    }
+  } finally {
+    booting = false;
   }
 }
 
@@ -246,6 +320,16 @@ ipcMain.handle("app:retry", () => boot());
 
 // ── app ────────────────────────────────────────────────────────────────────────
 app.whenReady().then(boot);
-app.on("window-all-closed", () => { stopServer(); if (process.platform !== "darwin") app.quit(); });
-app.on("activate", () => { if (!BrowserWindow.getAllWindows().length) boot(); });
+app.on("window-all-closed", () => { if (process.platform !== "darwin") { stopServer(); app.quit(); } });
+app.on("activate", async () => {
+  if (BrowserWindow.getAllWindows().length) return;
+  if (booting) {
+    // download still running headless (mac: window closed) → re-show progress
+    createWindow();
+    await win.loadFile(path.join(HERE, "ui", "loading.html"));
+    send("dl:need", { files: DB_FILES });
+  } else {
+    boot();
+  }
+});
 app.on("before-quit", stopServer);

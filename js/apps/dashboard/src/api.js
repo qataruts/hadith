@@ -18,6 +18,8 @@ export const api = {
   searchRawis: (q, limit = 20) => get("/search/rawis", { q, limit }),
   semanticGroups: (q, limit = 10) => get("/semantic/groups", { q, limit }),
   hadith: (id) => get(`/hadith/${id}`),
+  hadithNav: (id) => get(`/hadith/${id}/nav`),
+  bookHadithNo: (bookId, no) => get(`/book/${bookId}/no/${no}`),
   group: (id, limit = 30, offset = 0) => get(`/group/${id}`, { limit, offset }),
   groupTree: (id, sahabi) => get(`/group/${id}/tree`, sahabi ? { sahabi } : {}),
   rawi: (id) => get(`/rawi/${id}`),

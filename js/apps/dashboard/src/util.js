@@ -27,7 +27,7 @@ export function rankClass(rank = "") {
 }
 
 export const gradeBadge = (hukm) =>
-  hukm ? `<span class="badge ${gradeClass(hukm)}">${esc(hukm)}</span>` : "";
+  hukm ? `<span class="badge ${gradeClass(hukm)}" title="الحكم كما ورد في قاعدة البيانات المصدرية — راجع حكم كل إسناد في صفحة الحديث">${esc(hukm)}</span>` : "";
 
 export const rankBadge = (rank) =>
   rank ? `<span class="badge ${rankClass(rank)}">${esc(rank)}</span>` : "";
@@ -43,3 +43,15 @@ export const debounce = (fn, ms) => {
 
 /** Tiny hijri-year formatter for death years. */
 export const hijri = (y, raw) => (y ? `${fmt(y)}هـ` : raw ? `${esc(raw)}هـ` : "");
+
+/** Friendly Arabic message for missing-Gemini-key errors (semantic/chat). */
+export function keyErrorHtml(err = "") {
+  if (!/GEMINI|gemini|embed|400/.test(String(err))) return null;
+  return `البحث الدلالي والمحادثة يحتاجان مفتاح Gemini مجانياً.<br/>
+    <span class="muted">في تطبيق سطح المكتب: قائمة «ملف ← الإعدادات» وألصق المفتاح.
+    على الخادم: ضع GEMINI_API_KEY في ملف .env.
+    احصل على مفتاح من aistudio.google.com/apikey — بقية التطبيق يعمل بدونه.</span>`;
+}
+
+/** Strip tashkeel for display toggling (view-only). */
+export const stripTashkeel = (s) => s.replace(/[ً-ْٰۖ-ۭؐ-ؚ]/g, "");

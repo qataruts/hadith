@@ -3,12 +3,20 @@ import { api } from "../api.js";
 import { esc, fmt, gradeBadge } from "../util.js";
 import { tabaqatChart, bars } from "../components/charts.js";
 import { hadithCard } from "../components/cards.js";
-import { renderTree, bindTree } from "../components/tree.js";
+import { mountIsnadTree } from "../components/tree.js";
 
 export async function groupPage({ args: [id], params }) {
   const offset = Number(params.get("offset") ?? 0);
   const g = await api.group(id, 30, offset);
   if (!g) return `<div class="empty">المعنى غير موجود</div>`;
+  document.title = `معنى: ${g.nass.slice(0, 40)}… — الجامع`;
+  queueMicrotask(() => {   // highlight the narration the user came from
+    const from = params.get("from");
+    if (!from) return;
+    const el = document.querySelector(`a[href="#/hadith/${from}"]`);
+    el?.scrollIntoView({ block: "center" });
+    el?.animate([{ outline: "2px solid var(--gold)" }, { outline: "none" }], 1800);
+  });
 
   return `
   <div class="crumbs"><a href="#/search?mode=group">الأطراف</a> ‹ معنى ${fmt(g.groupId)}</div>
@@ -29,10 +37,11 @@ export async function groupPage({ args: [id], params }) {
       <h3 style="margin:0">شجرة الإسناد <span class="tag-count">كل طرق هذا المعنى في رسم واحد</span></h3>
       <div class="row" id="tree-filters" data-group="${g.groupId}"></div>
     </div>
-    <div id="isnad-tree" style="margin-top:12px"><div class="skeleton" style="height:260px"></div></div>
+    <div class="row" id="tree-head" style="margin-top:8px"></div>
+    <div id="isnad-tree" style="margin-top:10px"><div class="skeleton" style="height:300px"></div></div>
     <div class="muted" style="margin-top:8px">
-      أعلى الشجرة النبي ﷺ، ثم الصحابة (بالذهبي)، نزولاً بالطبقات إلى مصنّفي الكتب.
-      سماكة الخط = عدد الطرق المارّة به · مرّر على راوٍ لإضاءة طرقه · اضغط لفتح ترجمته.
+      اسحب للتنقل، عجلة الفأرة للتكبير، ⛶ لملء الشاشة · اضغط راوياً لبطاقة ترجمته، ومرتين لفتح صفحته ·
+      +N تحت الراوي = طرق إضافية تتوسع عند الضغط · سماكة الخط = عدد الطرق.
     </div>
   </div>
 
@@ -66,42 +75,68 @@ export async function groupPage({ args: [id], params }) {
     </div>` : ""}`;
 }
 
-const TREE_AUTO_LIMIT = 350; // above this many chains, start filtered to the top sahabi
 let treeReq = 0;             // stale async loads must not hijack a newer page/filter
+let treeInstance = null;
+let treeFull = null;         // unfiltered tree (for sahabi chips)
 
-async function loadTree(groupId, sahabi) {
+// Teardown on every navigation: kills the tree's document-level listeners and
+// scroll lock, and invalidates any in-flight loadTree continuation (which
+// would otherwise mount into a detached holder). Re-entering a group page
+// re-runs loadTree via page:rendered.
+addEventListener("hashchange", () => {
+  treeReq++;
+  treeInstance?.destroy();
+  treeInstance = null;
+});
+
+/**
+ * showAll=true renders the union of all companions' routes; otherwise a
+ * specific (or the strongest) companion is focused — one sahabi's tree is far
+ * clearer than 60 merged.
+ */
+async function loadTree(groupId, sahabi, showAll = false) {
   const req = ++treeReq;
   const holder = document.getElementById("isnad-tree");
   if (!holder) return;
-  holder.innerHTML = `<div class="skeleton" style="height:260px"></div>`;
+  treeInstance?.destroy();
+  treeInstance = null;
+  holder.innerHTML = `<div class="skeleton" style="height:300px"></div>`;
   try {
-    let tree = await api.groupTree(groupId, sahabi);
+    let tree = await api.groupTree(groupId, showAll ? undefined : sahabi);
     if (req !== treeReq) return;
     if (!tree) { holder.innerHTML = `<div class="empty">لا أسانيد</div>`; return; }
-    // huge bundle unfiltered → focus the strongest sahabi route by default
-    if (!sahabi && tree.chains > TREE_AUTO_LIMIT && tree.sahabis.length > 1) {
+    if (!showAll && !sahabi && tree.sahabis.length > 1) {
       sahabi = tree.sahabis[0].rawiId;
+      treeFull = tree;
       tree = await api.groupTree(groupId, sahabi);
       if (req !== treeReq) return;
     }
-    holder.innerHTML =
-      (tree.madar ? `<div class="row" style="margin-bottom:8px">
-        <span class="badge grade-hasan">◈ مدار الحديث: ${esc(tree.madar.name)} — تلتقي عنده ${fmt(tree.madar.count)} طريقاً</span>
-        <span class="badge">${fmt(tree.chains)} إسناد${tree.chains !== tree.totalChains ? ` من ${fmt(tree.totalChains)}` : ""}</span>
-      </div>` : "") + renderTree(tree);
-    bindTree(holder);
+    treeFull ??= tree;
+    if (!holder.isConnected) return;   // page swapped while fetching
+
+    const head = document.getElementById("tree-head");
+    if (head)
+      head.innerHTML = tree.madar
+        ? `<span class="badge grade-hasan">◈ مدار الحديث: ${esc(tree.madar.name)} — تلتقي عنده ${fmt(tree.madar.count)} طريقاً</span>
+           <span class="badge">${fmt(tree.chains)} إسناد${tree.chains !== tree.totalChains ? ` من ${fmt(tree.totalChains)}` : ""}</span>`
+        : `<span class="badge">${fmt(tree.chains)} إسناد</span>`;
+
+    treeInstance = mountIsnadTree(holder, tree, {
+      budget: showAll ? 60 : 46,
+      fetchRawi: (id) => api.rawi(id),
+    });
 
     const filters = document.getElementById("tree-filters");
-    if (filters && tree.sahabis.length > 1) {
-      const full = await (tree.chains === tree.totalChains ? tree : api.groupTree(groupId));
-      if (req !== treeReq) return;
+    if (filters && treeFull.sahabis.length > 1) {
       filters.innerHTML = [
-        `<button class="chip ${!sahabi ? "active" : ""}" data-s="">الكل (${fmt(full.totalChains)})</button>`,
-        ...full.sahabis.slice(0, 6).map((s) =>
-          `<button class="chip ${s.rawiId === sahabi ? "active" : ""}" data-s="${s.rawiId}">${esc(s.name)} (${fmt(s.count)})</button>`),
+        `<button class="chip ${showAll ? "active" : ""}" data-s="all">الكل (${fmt(treeFull.totalChains)})</button>`,
+        ...treeFull.sahabis.slice(0, 6).map((s) =>
+          `<button class="chip ${!showAll && s.rawiId === sahabi ? "active" : ""}" data-s="${s.rawiId}">${esc(s.name)} (${fmt(s.count)})</button>`),
       ].join("");
-      filters.querySelectorAll(".chip").forEach((b) =>
-        (b.onclick = () => loadTree(groupId, Number(b.dataset.s) || undefined)));
+      filters.querySelectorAll("[data-s]").forEach((b) =>
+        (b.onclick = () => b.dataset.s === "all"
+          ? loadTree(groupId, undefined, true)
+          : loadTree(groupId, Number(b.dataset.s))));
     }
   } catch (e) {
     holder.innerHTML = `<div class="empty">تعذر رسم الشجرة — ${esc(e.message)}</div>`;
@@ -112,6 +147,7 @@ document.addEventListener("page:rendered", () => {
   const f = document.getElementById("tree-filters");
   if (f?.dataset.group && !f.dataset.bound) {
     f.dataset.bound = "1";
+    treeFull = null;
     loadTree(Number(f.dataset.group));
   }
 });

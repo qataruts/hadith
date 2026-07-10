@@ -7,6 +7,7 @@ import { hadithCard } from "../components/cards.js";
 export async function rawiPage({ args: [id], params, render }) {
   const r = await api.rawi(id);
   if (!r) return `<div class="empty">الراوي غير موجود</div>`;
+  document.title = `${r.nickname} — الجامع`;
 
   const bio = [
     r.tabaka ? ["الطبقة", fmt(r.tabaka)] : null,

@@ -1,6 +1,6 @@
 /** المحادثة البحثية — RAG chat with streamed answers and numbered citations. */
 import { chatStream } from "../api.js";
-import { esc, fmt, gradeBadge } from "../util.js";
+import { esc, fmt, gradeBadge, keyErrorHtml } from "../util.js";
 
 let history = [];
 let sources = [];
@@ -23,6 +23,7 @@ export async function chatPage() {
       <form class="search-box" id="chat-form" style="max-width:100%">
         <input name="q" placeholder="سؤالك…" autocomplete="off" autofocus />
         <button>إرسال</button>
+        <button type="button" id="chat-stop" hidden title="إيقاف">◼</button>
       </form>
     </div>
     <div id="chat-sources">
@@ -71,6 +72,8 @@ document.addEventListener("page:rendered", () => {
     const ctrl = new AbortController();
     activeCtrl = ctrl;
     addEventListener("hashchange", () => ctrl.abort(), { once: true });
+    const stopBtn = document.getElementById("chat-stop");
+    if (stopBtn) { stopBtn.hidden = false; stopBtn.onclick = () => ctrl.abort(); }
     const bubble = () => document.getElementById("pending");
     await chatStream(
       { question: q, history: history.slice(-6) },
@@ -83,8 +86,11 @@ document.addEventListener("page:rendered", () => {
         },
         onError(err) {
           if (gen !== generation) return;
-          if (bubble()) bubble().innerHTML = `<span class="muted">تعذر الجواب — ${esc(err)}</span>`;
+          if (bubble())
+            bubble().innerHTML = keyErrorHtml(err) ??
+              `<span class="muted">تعذر الجواب — ${esc(err)}</span>`;
           form.querySelector("button").disabled = false;
+          if (stopBtn) stopBtn.hidden = true;
         },
         onDone() {
           if (gen !== generation) return;
@@ -98,9 +104,22 @@ document.addEventListener("page:rendered", () => {
                 src?.animate([{ outline: "2px solid var(--accent)" }, { outline: "none" }], 1200);
               };
             });
+            if (answer.trim()) {
+              const cp = document.createElement("button");
+              cp.className = "chip";
+              cp.style.marginTop = "10px";
+              cp.textContent = "نسخ الجواب";
+              cp.onclick = () => {
+                navigator.clipboard.writeText(answer);
+                cp.textContent = "نُسخ ✓";
+                setTimeout(() => (cp.textContent = "نسخ الجواب"), 1500);
+              };
+              b.appendChild(cp);
+            }
           }
           history.push({ role: "user", text: q }, { role: "model", text: answer });
           form.querySelector("button").disabled = false;
+          if (stopBtn) stopBtn.hidden = true;
         },
       },
       ctrl.signal);

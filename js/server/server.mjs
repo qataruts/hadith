@@ -25,6 +25,9 @@ const arg = (name, dflt) => {
 const APP_DB = arg("app", path.resolve(HERE, "../../hadith-app.db"));
 const KG_DB = arg("kg", path.resolve(HERE, "../../hadith-kg.db"));
 const PORT = Number(arg("port", 8077));
+// loopback by default: no LAN exposure, no OS firewall prompt. Pass
+// --host 0.0.0.0 explicitly when deploying behind a reverse proxy.
+const HOST = arg("host", "127.0.0.1");
 const STATIC_DIR = arg("static", path.resolve(HERE, "../apps/dashboard/dist"));
 const CHAT_MODEL = arg("chat-model", "gemini-2.5-flash");
 
@@ -378,6 +381,27 @@ const routes = {
   "GET /api/hadith/:id": async (_u, id) =>
     (await hadiths.findFirst({ where: { hadithId: Number(id) } })),
 
+  // previous/next hadith within the same book (by in-book numbering)
+  "GET /api/hadith/:id/nav": async (_u, id) => {
+    const cur = kg.prepare("SELECT book_id, no_inbook FROM hadiths WHERE id = ?").get(Number(id));
+    if (!cur) return null;
+    const prev = kg.prepare(
+      `SELECT id, no_inbook FROM hadiths WHERE book_id = ? AND no_inbook < ?
+       ORDER BY no_inbook DESC LIMIT 1`).get(cur.book_id, cur.no_inbook);
+    const next = kg.prepare(
+      `SELECT id, no_inbook FROM hadiths WHERE book_id = ? AND no_inbook > ?
+       ORDER BY no_inbook ASC LIMIT 1`).get(cur.book_id, cur.no_inbook);
+    return { prev: prev ?? null, next: next ?? null };
+  },
+
+  // resolve a hadith by book + in-book number (jump-to-number)
+  "GET /api/book/:id/no/:no": async (_u, id, no) => {
+    const row = kg.prepare(
+      "SELECT id FROM hadiths WHERE book_id = ? AND no_inbook = ? LIMIT 1")
+      .get(Number(id), Number(no));
+    return row ?? null;
+  },
+
   "GET /api/group/:id": async (u, id) => {
     const g = await groups.findFirst({ where: { groupId: Number(id) } });
     if (!g) return null;
@@ -624,6 +648,6 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () =>
+server.listen(PORT, HOST, () =>
   console.log(`hadith-kg api on http://localhost:${PORT}  app=${APP_DB}  kg=${KG_DB}`),
 );

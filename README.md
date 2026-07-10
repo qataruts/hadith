@@ -135,6 +135,9 @@ folder (resumable). A settings screen stores the user's own Gemini API key
 (semantic search + chat; the rest works offline without it).
 
 - Source: `js/apps/desktop/` (Electron shell) — reuses the server and dashboard unchanged.
+- **Unsigned builds**: installers are not code-signed yet. macOS: right-click
+  the app → Open → Open (first launch only). Windows SmartScreen: "More info"
+  → "Run anyway".
 - **Releases are built by CI**, not locally: push a tag and GitHub Actions builds
   macOS / Windows / Linux installers and attaches them to a Release.
 

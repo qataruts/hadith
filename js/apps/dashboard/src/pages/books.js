@@ -2,6 +2,20 @@ import { api } from "../api.js";
 import { esc, fmt } from "../util.js";
 import { hadithCard } from "../components/cards.js";
 
+document.addEventListener("page:rendered", () => {
+  const f = document.getElementById("jump-no");
+  if (!f || f.dataset.bound) return;
+  f.dataset.bound = "1";
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    const no = Number(f.no.value);
+    if (!no) return;
+    const hit = await api.bookHadithNo(f.dataset.book, no).catch(() => null);
+    if (hit?.id) location.hash = `#/hadith/${hit.id}`;
+    else { f.no.value = ""; f.no.placeholder = "لا حديث بهذا الرقم"; }
+  };
+});
+
 export async function booksPage() {
   const { books } = await api.books();
   const byTasnif = new Map();
@@ -28,11 +42,20 @@ export async function bookPage({ args: [id], params }) {
   const offset = Number(params.get("offset") ?? 0);
   const b = await api.book(id, 20, offset);
   if (!b) return `<div class="empty">الكتاب غير موجود</div>`;
+  document.title = `${b.name} — الجامع`;
   return `
   <div class="crumbs"><a href="#/books">الكتب</a> ‹ ${esc(b.name)}</div>
   <div class="card">
-    <h2 style="margin:0">${esc(b.name)}</h2>
-    <div class="muted" style="margin-top:4px">${esc(b.authorName)} (ت ${fmt(b.authorDeathYear)}هـ) · ${esc(b.tasnif)}</div>
+    <div class="spread">
+      <div>
+        <h2 style="margin:0">${esc(b.name)}</h2>
+        <div class="muted" style="margin-top:4px">${esc(b.authorName)} (ت ${fmt(b.authorDeathYear)}هـ) · ${esc(b.tasnif)}</div>
+      </div>
+      <form class="row" id="jump-no" data-book="${b.bookId}" style="gap:6px">
+        <input name="no" type="number" min="1" placeholder="اذهب إلى رقم…" style="width:130px;padding:7px 10px;border:1px solid var(--hairline);border-radius:8px;background:var(--surface);color:var(--ink);font-family:inherit" />
+        <button class="btn">انتقال</button>
+      </form>
+    </div>
     <div class="row" style="margin-top:10px">
       <span class="badge">${fmt(b.hadithQty)} حديثاً</span>
       ${b.dar ? `<span class="badge">${esc(b.dar)}${b.city ? " — " + esc(b.city) : ""}</span>` : ""}
