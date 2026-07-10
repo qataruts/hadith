@@ -1,0 +1,17 @@
+# الجامع — run on any Docker host.
+#   GEMINI_API_KEY=... docker compose up -d      (key optional)
+# First boot downloads ~4.5 GB of databases into the named volume (one time);
+# open http://localhost:8077 — a progress page shows until it's ready.
+services:
+  jami:
+    image: ${JAMI_IMAGE:-emadjumaah/hadith:latest}
+    ports:
+      - "8077:80"
+    volumes:
+      - jami-data:/data
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    restart: unless-stopped
+
+volumes:
+  jami-data:

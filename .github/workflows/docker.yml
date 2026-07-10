@@ -1,0 +1,55 @@
+name: Docker image
+
+# Build the الجامع server image and push it to Docker Hub.
+# Triggers: a version tag (v*), or manually from the Actions tab.
+# Requires two repo secrets: DOCKERHUB_USERNAME and DOCKERHUB_TOKEN
+# (a Docker Hub access token). Without them the image still builds and
+# smoke-tests here — only the push is skipped.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    env:
+      HAS_SECRETS: ${{ secrets.DOCKERHUB_TOKEN != '' && secrets.DOCKERHUB_USERNAME != '' }}
+      IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/hadith
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t jami:ci .
+
+      - name: Smoke test (entrypoint + deps + node:sqlite, no DB download)
+        run: |
+          docker run --rm --entrypoint node jami:ci --check /app/docker/entrypoint.mjs
+          docker run --rm --entrypoint node -w /app/js jami:ci --input-type=module -e "\
+            await import('@monlite/core'); await import('@monlite/fts'); \
+            const s = await import('node:sqlite'); \
+            new s.DatabaseSync(':memory:').exec('create table t(x)'); \
+            console.log('image OK — node', process.versions.node)"
+
+      - name: Log in to Docker Hub
+        if: env.HAS_SECRETS == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Tag & push
+        if: env.HAS_SECRETS == 'true'
+        run: |
+          VER="${GITHUB_REF_NAME}"
+          [ "${GITHUB_REF_TYPE}" = "tag" ] || VER="edge"
+          docker tag jami:ci "$IMAGE:latest"
+          docker tag jami:ci "$IMAGE:$VER"
+          docker push "$IMAGE:latest"
+          docker push "$IMAGE:$VER"
+          echo "pushed $IMAGE:latest and $IMAGE:$VER"
+
+      - name: Note when push skipped
+        if: env.HAS_SECRETS != 'true'
+        run: echo "::notice::Image built & smoke-tested. Push skipped — set DOCKERHUB_USERNAME and DOCKERHUB_TOKEN repo secrets to publish."

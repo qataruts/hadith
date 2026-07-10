@@ -158,6 +158,18 @@ folder (resumable). A settings screen stores the user's own Gemini API key
   never `cp` a database an open process is writing.
 - `GEMINI_API_KEY` lives in `.env` (git-ignored) and is used server-side only.
 
+## Server deployment (Docker / CapRover)
+
+A slim (~400 MB) server image downloads the databases from Hugging Face into a
+persistent volume on first boot. See **[DEPLOY.md](DEPLOY.md)**. Quick start:
+
+```sh
+GEMINI_API_KEY=YOUR_KEY docker compose up -d   # → http://localhost:8077
+```
+
+CI (`.github/workflows/docker.yml`) builds and pushes the image to Docker Hub on
+each version tag; set `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` repo secrets.
+
 ## Roadmap (v2)
 
 - **Āthār semantic tier** — embed the ~294K distinct mawqūf/maqṭūʿ taraf texts

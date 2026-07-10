@@ -1,0 +1,17 @@
+# keep the build context small — deps are installed fresh in the image
+.git
+archive/
+*.db
+*.db-wal
+*.db-shm
+*.db.bak
+*.pre-clean
+**/node_modules
+**/dist
+release/
+js/apps/desktop
+.env
+*.env
+.DS_Store
+*.code-workspace
+DATA_REPORT.md
