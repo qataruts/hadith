@@ -32,6 +32,13 @@ installers + public Docker image).
   self-contained SVG (no tiles) placing cities by lat/lng, sized by narrator
   count, with weighted directional flow arcs from death_place/iqama.
 
+- **v1.6.2** — the book scope now governs the WHOLE app consistently: search
+  (text/group/semantic — with a candidate-pool fix so a narrow scope's matches
+  aren't lost below the global top-N), the books page, rawi profiles (scoped
+  narration count + hadith list), the i'tibar board, ICMA, and the quiz all
+  respect the selected books. (Only person/record lookups where a book filter is
+  meaningless stay corpus-wide: a critic's judgements, a rawi's bio, the topic
+  taxonomy, a single-hadith view, and name search.)
 - **v1.6.1** — polish: **normalized rawi search** (a lazy in-memory normalized
   index — «احمد»/«ابو هريره»/«يحيي» now match أحمد/أبو هريرة/يحيى — with no DB
   change or HF re-upload); **scroll-position restoration** on back-navigation

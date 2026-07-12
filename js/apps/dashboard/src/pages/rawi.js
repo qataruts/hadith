@@ -41,6 +41,7 @@ export async function rawiPage({ args: [id], params, render }) {
     <div class="row" style="margin-top:12px">
       <span class="badge">${fmt(r.chainCount)} إسناد</span>
       <span class="badge">${fmt(r.hadithCount)} حديث</span>
+      ${r.scopedNarrations != null ? `<span class="badge grade-hasan" title="ضمن الكتب المختارة">${fmt(r.scopedNarrations)} ضمن نطاقك</span>` : ""}
       ${flags.map((f) => `<span class="badge">${f}</span>`).join("")}
     </div>
     ${bio.length ? `<hr class="hair"/><div class="row" style="gap:18px">${

@@ -2,8 +2,10 @@
 import { scopeParam, getScopeIds } from "./components/scope.js";
 const BASE = "/api";
 
-// endpoints that must always see the FULL corpus (never scoped)
-const UNSCOPED = /^\/(books|rawi|alem|topic)/;
+// the book scope governs the whole app; only a few person/record lookups where a
+// book filter is meaningless stay corpus-wide (a critic's judgements, a rawi's
+// bio + relations, the topic taxonomy, a single hadith view, name search).
+const UNSCOPED = /^\/(alem|topic|books?|hadith\/\d+$|search\/rawis)/;
 
 async function get(path, params) {
   const u = new URL(BASE + path, location.origin);

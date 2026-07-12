@@ -244,6 +244,14 @@ function parseBookScope(u) {
   return s.size ? s : null;
 }
 
+// SQL fragment `AND <col> IN (?,?,…)` for the active book scope (empty if none),
+// so any dynamic query can be limited to the selected books consistently.
+function bookIn(scope, col = "book_id") {
+  if (!scope) return { clause: "", params: [] };
+  const ids = [...scope];
+  return { clause: ` AND ${col} IN (${ids.map(() => "?").join(",")})`, params: ids };
+}
+
 // Normalized rawi search index — built once, lazily. Raw names keep hamza/alef
 // variants, so a `contains` on the stored text misses normalized queries; a small
 // in-memory normalized index fixes it with no DB change (49.8k rawis, ~2 MB).
@@ -489,8 +497,9 @@ const routes = {
     const limit = clamp(u.searchParams.get("limit"), 20, 100);
     if (!qs) return { hits: [] };
     const scope = parseBookScope(u);
-    // over-fetch when scoped so the post-filter still fills the page
-    const hits = await hadiths.search(qs, { limit: scope ? limit * 6 : limit });
+    // over-fetch a large fixed pool when scoped (a narrow scope's matches sit
+    // deep in the global ranking, so limit*k is far too few for small limits)
+    const hits = await hadiths.search(qs, { limit: scope ? Math.max(500, limit * 6) : limit });
     const kept = scope ? hits.filter((h) => scope.has(h.bookId)) : hits;
     return { hits: kept.slice(0, limit).map(trim) };
   },
@@ -500,7 +509,7 @@ const routes = {
     const limit = clamp(u.searchParams.get("limit"), 20, 100);
     if (!qs) return { hits: [] };
     const scope = parseBookScope(u);
-    const hits = await groups.search(qs, { limit: scope ? limit * 4 : limit });
+    const hits = await groups.search(qs, { limit: scope ? Math.max(400, limit * 4) : limit });
     // a group is in-scope if any of its books is active
     const kept = scope
       ? hits.filter((g) => (g.books ?? []).some((b) => scope.has(b.bookId)))
@@ -627,9 +636,10 @@ const routes = {
         ?? { hadithId: r.hadith_id, grade: r.grade, bookId: r.book_id, rows: [] };
       c.rows.push(r); byS.set(r.sanad_id, c);
     }
+    const bScope = parseBookScope(u);
     const seqs = [...byS.entries()].map(([sid, c]) => ({ sid, ...c, seq: [...c.rows].reverse() }))
-      .filter((s) => s.seq.length >= 2);
-    if (!seqs.length) return { available: false };
+      .filter((s) => s.seq.length >= 2 && (!bScope || bScope.has(s.bookId)));
+    if (!seqs.length) return { available: true, empty: true, scoped: !!bScope };
 
     // dominant Companion, then the madār among his routes (the pivot most routes
     // pass through, preferring the one closest to the Companion)
@@ -756,11 +766,12 @@ const routes = {
         ?? { hadithId: r.hadith_id, bookId: r.book_id, grade: r.grade, matn: r.matn, rows: [] };
       c.rows.push(r); byS.set(r.sanad_id, c);
     }
+    const iScope = parseBookScope(u);
     const routes = [...byS.entries()].map(([sid, c]) => ({
       sid, hadithId: c.hadithId, bookId: c.bookId, grade: c.grade, matn: (c.matn || "").trim(),
       seq: [...c.rows].reverse(),            // [0] = Companion
-    })).filter((r) => r.seq.length >= 2 && r.matn.length >= 12);
-    if (routes.length < 3) return { available: true, uniform: true, totalRoutes: routes.length };
+    })).filter((r) => r.seq.length >= 2 && r.matn.length >= 12 && (!iScope || iScope.has(r.bookId)));
+    if (routes.length < 3) return { available: true, uniform: true, totalRoutes: routes.length, scoped: !!iScope };
 
     const norm = (t) => normalizeArabic(t).replace(/\s+/g, " ").trim();
     const clusters = new Map();
@@ -1210,20 +1221,41 @@ const routes = {
     return { narrations: (await byIds([...ids])).map(trim) };
   },
 
-  "GET /api/rawi/:id": async (_u, id) => {
+  "GET /api/rawi/:id": async (u, id) => {
     const r = await rawis.findFirst({ where: { rawiId: Number(id) } });
     if (!r) return null;
+    const scope = parseBookScope(u);
+    let scopedNarrations;
+    if (scope) {
+      const { clause, params } = bookIn(scope, "h.book_id");
+      scopedNarrations = kg.prepare(
+        `SELECT COUNT(DISTINCT s.hadith_id) n FROM sanad_rawis sr
+         JOIN sanads s ON s.id = sr.sanad_id JOIN hadiths h ON h.id = s.hadith_id
+         WHERE sr.rawi_id = ? AND sr.pos > 0${clause}`).get(Number(id), ...params).n;
+    }
     return {
       ...r,
       teachers: q.teachers.all(r.rawiId, 15),
       students: q.students.all(r.rawiId, 15),
+      scopedNarrations,          // narrations within the selected books (if scoped)
     };
   },
 
   "GET /api/rawi/:id/hadiths": async (u, id) => {
     const limit = clamp(u.searchParams.get("limit"), 20, 100);
     const offset = clamp(u.searchParams.get("offset"), 0, 100000000);
-    const ids = q.rawiHadiths.all(Number(id), limit, offset).map((r) => r.hadith_id);
+    const scope = parseBookScope(u);
+    let ids;
+    if (scope) {
+      const { clause, params } = bookIn(scope, "h.book_id");
+      ids = kg.prepare(
+        `SELECT DISTINCT s.hadith_id FROM sanad_rawis sr
+         JOIN sanads s ON s.id = sr.sanad_id JOIN hadiths h ON h.id = s.hadith_id
+         WHERE sr.rawi_id = ? AND sr.pos > 0${clause} ORDER BY s.hadith_id LIMIT ? OFFSET ?`)
+        .all(Number(id), ...params, limit, offset).map((r) => r.hadith_id);
+    } else {
+      ids = q.rawiHadiths.all(Number(id), limit, offset).map((r) => r.hadith_id);
+    }
     return { hadiths: (await byIds(ids)).map(trim) };
   },
 
@@ -1238,6 +1270,8 @@ const routes = {
   "GET /api/alems": async () =>
     ({ alems: await alems.findMany({ orderBy: { aqwalQty: "desc" } }) }),
 
+  // always the full list — the scope picker needs every book; the books PAGE
+  // filters to the active scope client-side.
   "GET /api/books": async () =>
     ({ books: await books.findMany({ orderBy: { bookId: "asc" } }) }),
 
@@ -1254,9 +1288,13 @@ const routes = {
     const qs = (u.searchParams.get("q") ?? "").trim();
     const limit = clamp(u.searchParams.get("limit"), 10, 50);
     if (!qs) return { hits: [] };
-    const r = await semanticGroupDocs(qs, limit);
+    const scope = parseBookScope(u);
+    const r = await semanticGroupDocs(qs, scope ? limit * 3 : limit);
     if (r.hits == null) return r;
-    return { hits: r.hits.map((h) => ({
+    // keep only meanings that actually appear in the selected books
+    let hits = r.hits;
+    if (scope) hits = hits.filter((h) => (h.doc.books ?? []).some((b) => scope.has(b.bookId)));
+    return { hits: hits.slice(0, limit).map((h) => ({
       groupId: h.groupId, score: Math.round(h.score * 1000) / 1000,
       nass: h.doc.nass, hadithCount: h.doc.hadithCount,
       sahabiCount: h.doc.sahabis.length, bookCount: h.doc.books.length,
@@ -1275,14 +1313,17 @@ const routes = {
 
   // «احكم على السند» — a random hadith's chain (narrators + grades) for the
   // grade-the-chain learning quiz; returns the answer + weakest link for reveal.
-  "GET /api/quiz": async () => {
+  "GET /api/quiz": async (u) => {
+    const scope = parseBookScope(u);
+    const { clause, params } = bookIn(scope);
     const maxId = kg.prepare("SELECT MAX(id) m FROM hadiths").get().m;
     let h = null;
-    for (let t = 0; t < 20; t++) {
+    for (let t = 0; t < 30; t++) {
       const rid = 1 + Math.floor(Math.random() * maxId);
       const cand = kg.prepare(
         `SELECT id, matn, taraf_nass, type FROM hadiths
-         WHERE id >= ? AND type_no IN (0,1) AND group_id IS NOT NULL AND matn != '' LIMIT 1`).get(rid);
+         WHERE id >= ? AND type_no IN (0,1) AND group_id IS NOT NULL AND matn != ''${clause} LIMIT 1`)
+        .get(rid, ...params);
       if (cand && gradeKey(cand.matn) !== "other") { h = cand; break; }  // only clearly-gradable
     }
     if (!h) return null;

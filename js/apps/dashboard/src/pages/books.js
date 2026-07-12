@@ -1,6 +1,7 @@
 import { api } from "../api.js";
 import { esc, fmt } from "../util.js";
 import { hadithCard } from "../components/cards.js";
+import { getScopeIds } from "../components/scope.js";
 
 document.addEventListener("page:rendered", () => {
   const f = document.getElementById("jump-no");
@@ -17,14 +18,19 @@ document.addEventListener("page:rendered", () => {
 });
 
 export async function booksPage() {
-  const { books } = await api.books();
+  const { books: all } = await api.books();
+  const scope = getScopeIds();                       // book-level filter governs this page too
+  const books = scope ? all.filter((b) => scope.includes(b.bookId)) : all;
   const byTasnif = new Map();
   for (const b of books) {
     const list = byTasnif.get(b.tasnif) ?? [];
     list.push(b);
     byTasnif.set(b.tasnif, list);
   }
-  return [...byTasnif.entries()]
+  const note = scope
+    ? `<div class="muted" style="margin-bottom:12px">تُعرض ${fmt(books.length)} كتاباً ضمن نطاقك المختار — غيّره من زرّ «نطاق الكتب».</div>`
+    : "";
+  return note + [...byTasnif.entries()]
     .map(([tasnif, list]) => `
       <div class="sec-title">${esc(tasnif)} <span class="tag-count">${fmt(list.length)} كتاباً</span></div>
       <div class="grid grid-3">

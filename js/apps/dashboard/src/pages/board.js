@@ -7,6 +7,7 @@ import { api } from "../api.js";
 import { esc, fmt, gradeBadge, rankBadge, rankVar } from "../util.js";
 import { mountIsnadTree } from "../components/tree.js";
 import { termLink } from "../components/glossary.js";
+import { getScopeIds } from "../components/scope.js";
 
 const routeList = (arr, empty) => arr.length
   ? `<div class="itibar-list">${arr.map((h) => `
@@ -26,6 +27,19 @@ export async function board({ args: [id], params }) {
     return `<div class="empty">لا يمكن فتح لوحة الاعتبار لهذا المعنى (لا أسانيد كافية).</div>`;
   document.title = `لوحة الاعتبار — ${g.nass.slice(0, 30)}… — الجامع`;
 
+  const scopeN = getScopeIds()?.length;
+  const scopeNote = scopeN
+    ? `يعمل ضمن كتبك المختارة (${fmt(scopeN)} كتاباً) — وسّع النطاق إلى «كل الكتب» لرؤية كل الطرق والمتابعات.`
+    : `يشمل كل الكتب.`;
+
+  if (b.empty)
+    return `
+      <div class="crumbs"><a href="#/group/${id}">معنى ${fmt(g.groupId)}</a> ‹ لوحة الاعتبار</div>
+      <div class="card"><div class="nass nass-sm">${esc(g.nass)}</div></div>
+      <div class="card" style="margin-top:14px">
+        <div class="muted">لا طرق لهذا المعنى ضمن نطاقك المختار من الكتب. ${scopeNote}</div>
+      </div>`;
+
   const subjectChip = (n) => `<a class="chip itibar-rawi ${n.isFocus ? "active" : ""}"
       href="#/board/${id}?rawi=${n.rawiId}"
       style="border-inline-start:4px solid ${rankVar(n.rank ?? "")}">
@@ -39,8 +53,7 @@ export async function board({ args: [id], params }) {
   <div class="card">
     <div class="nass nass-sm">${esc(g.nass)}</div>
     <div class="muted" style="margin-top:8px;font-size:12.5px">
-      تنظر اللوحة في كل الطرق (${fmt(b.totalRoutes)} طريقاً) عبر <b>كل الكتب</b> —
-      لأنّ التقوية بالمتابعات والشواهد لا تُحصر في نطاقٍ مختار.
+      تنظر اللوحة في ${fmt(b.totalRoutes)} طريقاً — ${scopeNote}
     </div>
   </div>
 
@@ -96,20 +109,20 @@ export async function board({ args: [id], params }) {
 }
 
 // Mount the merged network after the page renders. Corpus-wide (books:0) so the
-// graph matches the corpus-wide ledger above it.
+// graph matches the (scope-aware) ledger above it.
 document.addEventListener("page:rendered", async () => {
   const holder = document.getElementById("board-tree");
   if (!holder || holder.dataset.mounted) return;
   holder.dataset.mounted = "1";
   const gid = holder.dataset.group, sahabi = Number(holder.dataset.sahabi) || undefined;
   try {
-    const tree = await api.groupTree(gid, { books: 0, sahabi });
+    const tree = await api.groupTree(gid, { sahabi });   // respects the active book scope
     if (!holder.isConnected) return;
-    if (!tree || tree.chains === 0) { holder.innerHTML = `<div class="empty">لا شبكة لعرضها</div>`; return; }
+    if (!tree || tree.chains === 0) { holder.innerHTML = `<div class="empty">لا شبكة لعرضها ضمن النطاق</div>`; return; }
     mountIsnadTree(holder, tree, {
       budget: 60,
       fetchRawi: (rid) => api.rawi(rid),
-      onEdge: (from, to) => api.groupEdge(gid, from, to, { books: 0, sahabi }).then((r) => r.narrations),
+      onEdge: (from, to) => api.groupEdge(gid, from, to, { sahabi }).then((r) => r.narrations),
     });
   } catch { holder.innerHTML = `<div class="empty">تعذّر رسم الشبكة</div>`; }
 });
