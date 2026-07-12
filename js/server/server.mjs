@@ -1459,6 +1459,69 @@ const routes = {
     };
   },
 
+  // نبراس · hadith_audit — a synthesized critical dossier for one hadith,
+  // assembled in-process (callApi) from grade + i'tibar board + contact audit +
+  // per-sanad defects + the meaning's route-grade spread. It only READS and
+  // reflects recorded gradings/analysis; it issues no ruling of its own.
+  "GET /api/nibras/audit/:id": async (_u, id) => {
+    const hid = Number(id);
+    const h = await callApi(`/api/hadith/${hid}`);
+    if (!h) return null;
+    const gradeClass = gradeKey(h.hukm || h.grade || "");
+    const [contact, why] = await Promise.all([
+      callApi(`/api/hadith/${hid}/contact`),
+      callApi(`/api/hadith/${hid}/why`),
+    ]);
+    let board = null, meaning = null;
+    if (h.groupId != null) {
+      board = await callApi(`/api/group/${h.groupId}/board`);   // corpus-wide (no scope) = full evidence
+      const dist = kg.prepare(
+        "SELECT matn_no lv, COUNT(*) c FROM hadiths WHERE group_id = ? GROUP BY matn_no ORDER BY matn_no").all(h.groupId);
+      const routes = kg.prepare("SELECT COUNT(*) n FROM sanads WHERE group_id = ?").get(h.groupId).n;
+      const graded = dist.filter((d) => d.lv >= 0);   // skip the ungraded (-1) level
+      meaning = { groupId: h.groupId, routes, bestLv: graded[0]?.lv };
+    }
+    let breaks = 0, suspects = 0;
+    for (const s of contact?.sanads ?? []) for (const l of s.links ?? []) {
+      if (l.verdict === "break") breaks++; else if (l.verdict === "suspect") suspects++;
+    }
+    const D = { tadlis: "تدليس", ikhtilat: "اختلاط", inqita: "انقطاع" };
+    const defects = new Set();
+    for (const s of why?.sanads ?? []) for (const o of s.observations ?? []) if (D[o.type]) defects.add(o.type);
+
+    const LV = ["صحيح", "حسن", "ضعيف", "شديد الضعف", "متهم بالوضع", "موضوع"];
+    const GRADE_AR = { sahih: "صحيح", hasan: "حسن", daif: "ضعيف", mawdu: "موضوع/منكر", other: "غير محدَّد" };
+    const signals = [];
+    signals.push({ label: "الحكم المسجَّل",
+      tone: gradeClass === "sahih" || gradeClass === "hasan" ? "good" : gradeClass === "mawdu" ? "bad" : gradeClass === "daif" ? "warn" : "neutral",
+      detail: h.hukm || GRADE_AR[gradeClass] });
+    if (board?.available && !board.empty && board.verdict)
+      signals.push({ label: "التقوية (المتابعات والشواهد)",
+        tone: board.verdict.level === "strong" ? "good" : board.verdict.level === "alone" ? "warn" : "neutral",
+        detail: board.verdict.text });
+    signals.push({ label: "اتصال الإسناد",
+      tone: breaks ? "bad" : suspects ? "warn" : "good",
+      detail: breaks ? `فيه ${breaks} موضع انقطاعٍ مُثبَت في بعض الطرق`
+        : suspects ? `${suspects} موضعٌ يُتحقَّق من سماعه (تنبيه استشاري لا حكم)`
+        : "ظاهرُ إسناده الاتصال" });
+    if (defects.size)
+      signals.push({ label: "علل الرواة", tone: "warn",
+        detail: "في بعض طرقه: " + [...defects].map((d) => D[d]).join("، ") });
+    if (meaning?.bestLv != null)
+      signals.push({ label: "ثبوت المعنى", tone: meaning.bestLv <= 1 ? "good" : "neutral",
+        detail: `ورد المعنى من ${meaning.routes} طريقاً، أقواها ${LV[meaning.bestLv] ?? "غير محدَّد"}` });
+
+    const parts = [h.hukm || GRADE_AR[gradeClass]];
+    if (board?.verdict?.level === "strong") parts.push("تُوبع مدارُه");
+    if (meaning && meaning.bestLv <= 1 && gradeClass !== "sahih" && gradeClass !== "hasan")
+      parts.push("والمعنى ثابتٌ من طرقٍ أخرى");
+    if (breaks) parts.push("مع كلامٍ في اتصال بعض طرقه");
+    return {
+      hadithId: hid, book: bookName.get(h.bookId), noInBook: h.noInBook,
+      gradeClass, headline: parts.join(" · "), signals, groupId: h.groupId,
+    };
+  },
+
   // الأفراد والغرائب — meanings that exist in a SINGLE chain (فرد مطلق), each
   // with the weakest narrator carrying it. Filter by that narrator's grade to
   // surface suspect singular narrations (أفراد الضعفاء والمتروكين = مظنة النكارة).

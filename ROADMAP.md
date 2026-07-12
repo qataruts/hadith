@@ -32,6 +32,13 @@ installers + public Docker image).
   self-contained SVG (no tiles) placing cities by lat/lng, sized by narrator
   count, with weighted directional flow arcs from death_place/iqama.
 
+- **v1.10.0** — **نبراس · الخلاصة النقدية** (hadith_audit): a synthesized critical
+  dossier atop every hadith page, assembled in-process (Phase-0 `callApi`) from
+  the recorded grade + i'tibar board + contact audit + per-sanad defects + the
+  meaning's route-grade spread. Amiri headline + colour-coded signals (good/warn/
+  bad), under the نبراس «قراءةٌ من الموسوعة لا فتوى» tag. Reads stored analysis
+  only — issues no ruling. New: GET /api/nibras/audit/:id. (Also removed a stray
+  🕸 emoji — the UI is now fully emoji-free.)
 - **v1.9.0** — **نبراس · حارس الإسناد** (swarm rec #3, first slice): paste a
   circulating hadith/claim → the app searches the whole encyclopedia (FTS +
   literal token-coverage, works without a key) and reports its matched wording,

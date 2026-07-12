@@ -25,7 +25,7 @@ export async function hadithPage({ args: [id], render }) {
       <div class="row">
         ${gradeBadge(h.hukm)}
         <span class="badge" title="نوع الرواية كما في المصدر">${esc(h.type)}</span>
-        ${h.groupId ? `<a class="chip" href="#/group/${h.groupId}?from=${h.hadithId}">🕸 كل روايات هذا المعنى</a>` : ""}
+        ${h.groupId ? `<a class="chip" href="#/group/${h.groupId}?from=${h.hadithId}">كل روايات هذا المعنى</a>` : ""}
       </div>
       <div class="row">
         <button class="chip" id="tashkeel-btn" title="إظهار/إخفاء التشكيل">التشكيل</button>
@@ -37,6 +37,14 @@ export async function hadithPage({ args: [id], render }) {
     ${extras.takhrij ?? ""}
     <div class="muted no-print" style="margin-top:14px">أسماء الرواة في النص روابط — اضغط أي اسم لفتح ترجمته</div>
   </div>
+
+  ${h.groupId ? `<div class="card no-print" id="audit-host" data-hid="${h.hadithId}" style="margin-top:14px">
+    <div class="spread" style="align-items:center">
+      <h3 style="margin:0">الخلاصة النقدية</h3>
+      <span class="nibras-tag">نبراس · قراءةٌ من الموسوعة لا فتوى</span>
+    </div>
+    <div id="audit-body" style="margin-top:10px"><div class="skeleton" style="height:90px"></div></div>
+  </div>` : ""}
 
   ${(h.sanads ?? []).length ? `<div class="card" id="isnad-host" data-hid="${h.hadithId}" style="position:relative">
     <div class="no-print">
@@ -110,7 +118,34 @@ export async function hadithPage({ args: [id], render }) {
   return page({ nav: navHtml, takhrij: takhrijHtml });
 }
 
+function renderAudit(d) {
+  if (!d) return `<div class="muted">تعذّرت الخلاصة</div>`;
+  return `
+    <div class="audit-headline">${esc(d.headline ?? "")}</div>
+    <div class="audit-signals">
+      ${(d.signals ?? []).map((s) => `
+        <div class="audit-sig tone-${s.tone}">
+          <span class="audit-dot"></span>
+          <div><b>${esc(s.label)}</b><div class="muted" style="font-size:13px">${esc(s.detail)}</div></div>
+        </div>`).join("")}
+    </div>
+    <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+      ${d.groupId ? `<a class="chip" href="#/board/${d.groupId}">لوحة الاعتبار</a>
+        <a class="chip" href="#/icma/${d.groupId}">تحليل الإسناد والمتن</a>` : ""}
+    </div>`;
+}
+
 document.addEventListener("page:rendered", () => {
+  const aHost = document.getElementById("audit-host");
+  if (aHost && !aHost.dataset.bound) {
+    aHost.dataset.bound = "1";
+    const hid = Number(aHost.dataset.hid);
+    const body = document.getElementById("audit-body");
+    api.nibrasAudit(hid)
+      .then((d) => { body.innerHTML = renderAudit(d); })
+      .catch(() => { body.innerHTML = `<div class="muted">تعذّرت الخلاصة</div>`; });
+  }
+
   const itHost = document.getElementById("itibar-host");
   if (itHost && !itHost.dataset.bound) {
     itHost.dataset.bound = "1";
