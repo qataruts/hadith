@@ -47,6 +47,7 @@ export const api = {
   conflicts: (minGap = 2, offset = 0) => get("/conflicts", { minGap, offset, limit: 40 }),
   nibrasCheck: (q) => get("/nibras/check", { q }),
   nibrasAudit: (id) => get(`/nibras/audit/${id}`),
+  nibrasTopicAudit: (id) => get(`/nibras/topic-audit/${id}`),
   quiz: () => get("/quiz"),
   topics: (parent) => get("/topics", parent ? { parent } : {}),
   topic: (id) => get(`/topic/${id}`),

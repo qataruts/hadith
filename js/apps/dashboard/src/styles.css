@@ -329,6 +329,18 @@ hr.hair { border: 0; border-top: 1px solid var(--hairline); margin: 16px 0; }
 .audit-sig.tone-warn .audit-dot { background: var(--gold); }
 .audit-sig.tone-bad .audit-dot { background: var(--rk-matruk); }
 
+/* نبراس · topic audit — grade distribution bar + sub-branch meters */
+.grade-bar { display: flex; height: 14px; border-radius: 7px; overflow: hidden; gap: 1px; background: var(--surface-2); }
+.grade-bar > span { display: block; min-width: 2px; }
+.topic-audit-kids { display: flex; flex-direction: column; gap: 4px; }
+.taudit-kid { display: grid; grid-template-columns: 1fr 90px auto; gap: 10px; align-items: center;
+  padding: 7px 10px; border-radius: 8px; color: var(--ink); }
+.taudit-kid:hover { background: var(--surface-2); text-decoration: none; }
+.tk-name { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-meter { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.tk-meter > span { display: block; height: 100%; background: var(--rk-daif); }
+.tk-pct { font-size: 12px; white-space: nowrap; }
+
 /* نبراس — the permanent "data, not fatwa" banner */
 .nibras-banner { border: 1px solid var(--gold); background: var(--gold-soft);
   color: var(--ink-2); border-radius: 9px; padding: 8px 12px; font-size: 12.5px;

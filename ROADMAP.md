@@ -32,6 +32,14 @@ installers + public Docker image).
   self-contained SVG (no tiles) placing cities by lat/lng, sized by narrator
   count, with weighted directional flow arcs from death_place/iqama.
 
+- **v1.11.0** — **نبراس · الخلاصة النقدية للباب** (topic_audit): critique a whole
+  موضوع/قضية — the grade distribution across every hadith under a topic subtree
+  (lft/rgt nested set), with each sub-branch ranked by its weak share. Backed by
+  a precomputed per-group grade index (warmed at startup) → 19.8s query becomes
+  ~0.1s. Framed honestly: a weak-heavy باب (رقائق/فضائل) is classically expected,
+  not a defect; «توزيعٌ للأحكام كما دُوِّنت لا إعادةَ حكم». Completes the نبراس
+  critical core (claim_check + hadith_audit + topic_audit + the callApi enabler).
+  New: GET /api/nibras/topic-audit/:id.
 - **v1.10.0** — **نبراس · الخلاصة النقدية** (hadith_audit): a synthesized critical
   dossier atop every hadith page, assembled in-process (Phase-0 `callApi`) from
   the recorded grade + i'tibar board + contact audit + per-sanad defects + the

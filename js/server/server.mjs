@@ -270,6 +270,23 @@ function conflictIndex() {
   return _conflictIdx;
 }
 
+// Per-group grade index — group_id → Int32Array(7): counts by grade level
+// (0 صحيح … 5 موضوع, index 6 = ungraded). Built once (~7s scan; hadiths.group_id
+// isn't indexed) so topic audits sum a subtree's groups in RAM, instantly.
+let _ggIdx = null;
+function groupGradeIndex() {
+  if (_ggIdx) return _ggIdx;
+  const m = new Map();
+  for (const r of kg.prepare(
+    "SELECT group_id gid, matn_no lv, COUNT(*) c FROM hadiths WHERE group_id IS NOT NULL GROUP BY group_id, matn_no").all()) {
+    let a = m.get(r.gid);
+    if (!a) { a = new Int32Array(7); m.set(r.gid, a); }
+    a[r.lv < 0 ? 6 : r.lv] += r.c;
+  }
+  _ggIdx = m;
+  return m;
+}
+
 // Normalized rawi search index — built once, lazily. Raw names keep hamza/alef
 // variants, so a `contains` on the stored text misses normalized queries; a small
 // in-memory normalized index fixes it with no DB change (49.8k rawis, ~2 MB).
@@ -1459,6 +1476,46 @@ const routes = {
     };
   },
 
+  // نبراس · topic_audit — the authenticity picture of a whole باب/موضوع: the
+  // grade distribution across every hadith under a topic subtree (lft/rgt nested
+  // set), plus each sub-branch's sound/weak share. Describes the corpus as
+  // recorded — it never re-grades. (A weaker باب like الرقائق is expected
+  // classically, not a defect; the client frames it so.)
+  "GET /api/nibras/topic-audit/:id": async (_u, id) => {
+    const t = kg.prepare("SELECT id, name, lft, rgt, tree_id FROM topics WHERE id = ?").get(Number(id));
+    if (!t) return null;
+    const idx = groupGradeIndex();
+    const subGroups = kg.prepare(
+      "SELECT DISTINCT group_id gid FROM topics WHERE tree_id = ? AND lft BETWEEN ? AND ? AND group_id IS NOT NULL");
+    const sum = (lft, rgt) => {
+      const tot = new Int32Array(7);
+      for (const { gid } of subGroups.all(t.tree_id, lft, rgt)) {
+        const a = idx.get(gid);
+        if (a) for (let i = 0; i < 7; i++) tot[i] += a[i];
+      }
+      return tot;
+    };
+    const tot = sum(t.lft, t.rgt);
+    const total = tot.reduce((s, x) => s + x, 0);
+    const children = kg.prepare("SELECT id, name, lft, rgt FROM topics WHERE parent_id = ? ORDER BY lft").all(t.id)
+      .map((c) => {
+        const a = sum(c.lft, c.rgt);
+        const n = a.reduce((s, x) => s + x, 0);
+        return { id: c.id, name: c.name, total: n,
+          soundPct: n ? Math.round(100 * (a[0] + a[1]) / n) : 0,
+          weakPct: n ? Math.round(100 * (a[2] + a[3] + a[4] + a[5]) / n) : 0 };
+      })
+      .filter((c) => c.total > 0)
+      .sort((a, b) => b.total - a.total);
+    return {
+      topicId: t.id, name: t.name, total,
+      dist: [...tot].map((c, i) => ({ lv: i === 6 ? -1 : i, c })).filter((x) => x.c > 0),
+      soundPct: total ? Math.round(100 * (tot[0] + tot[1]) / total) : 0,
+      weakPct: total ? Math.round(100 * (tot[2] + tot[3] + tot[4] + tot[5]) / total) : 0,
+      children: children.slice(0, 16),
+    };
+  },
+
   // نبراس · hadith_audit — a synthesized critical dossier for one hadith,
   // assembled in-process (callApi) from grade + i'tibar board + contact audit +
   // per-sanad defects + the meaning's route-grade spread. It only READS and
@@ -1698,7 +1755,7 @@ server.listen(PORT, HOST, () =>
     const top30 = bs.slice().sort((a, b) => (b.hadithQty ?? 0) - (a.hadithQty ?? 0))
       .slice(0, 30).map((b) => b.bookId);
     if (base && top30.length) { scopedStats(base, top30); console.log("warmed default scope stats"); }
-    conflictIndex(); rawiIndex();   // ~10s + ~1s scans, once, in the background
-    console.log("warmed conflict + rawi indexes");
+    conflictIndex(); rawiIndex(); groupGradeIndex();   // heavy one-time scans, in the background
+    console.log("warmed conflict + rawi + group-grade indexes");
   } catch (e) { console.warn("scope warm skipped:", e.message); }
 })();
