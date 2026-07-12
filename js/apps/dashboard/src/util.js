@@ -15,19 +15,55 @@ export function gradeClass(hukm = "") {
   return "";
 }
 
-/** rawi rank text → badge class */
+/**
+ * Single source of truth for narrator reliability. Tiers are ordered
+ * strictly worst-first after the sahabi exception, so a hedged rank like
+ * "ثقة صدوق" resolves to the more cautious صدوق, and the badge class and the
+ * isnad color can never disagree.
+ */
+const RANK_TIERS = [
+  { key: "sahabi", sev: 0, re: /صحابي/ },
+  { key: "matruk", sev: 5, re: /متروك|كذاب|وضاع|يضع|متهم|دجال/ },
+  { key: "daif",   sev: 4, re: /ضعيف|منكر|واه|ساقط/ },
+  { key: "majhul", sev: 3, re: /مجهول|مستور|مقبول|لين|لا يعرف/ },
+  { key: "saduq",  sev: 2, re: /صدوق|لا بأس|حسن/ },
+  { key: "thiqa",  sev: 1, re: /ثقة|حافظ|إمام|حجة|متقن|ثبت|جبل/ },
+];
+export function rankSev(rank = "") {
+  for (const t of RANK_TIERS) if (t.re.test(rank)) return { sev: t.sev, cls: `rk-${t.key}` };
+  return { sev: 3, cls: "rk-unknown" };   // ungraded → treated as caution
+}
+export const rankVar = (rank) => `var(--${rankSev(rank).cls})`;
+/** rawi rank text → badge class, derived from the same tiers. */
 export function rankClass(rank = "") {
-  if (/صحابي/.test(rank)) return "rank-sahabi";
-  if (/متروك|كذاب|وضاع|يضع/.test(rank)) return "rank-matruk";
-  if (/ضعيف|لين|منكر/.test(rank)) return "rank-daif";
-  if (/ثقة|حافظ|إمام|حجة/.test(rank)) return "rank-thiqa";
-  if (/مجهول|مقبول|مستور/.test(rank)) return "rank-majhul";
-  if (/صدوق|حسن/.test(rank)) return "rank-saduq";
-  return "";
+  const { cls } = rankSev(rank);
+  return cls === "rk-unknown" ? "" : `rank-${cls.slice(3)}`;
 }
 
 export const gradeBadge = (hukm) =>
   hukm ? `<span class="badge ${gradeClass(hukm)}" title="الحكم كما ورد في قاعدة البيانات المصدرية — راجع حكم كل إسناد في صفحة الحديث">${esc(hukm)}</span>` : "";
+
+/** Edge color = the WEAKER of its two endpoints (a chain is as strong as its weakest link). */
+export function edgeVar(rankA, rankB) {
+  const a = rankSev(rankA), b = rankSev(rankB);
+  return `var(--${(a.sev >= b.sev ? a : b).cls})`;
+}
+
+/** Color legend for the isnad graph (shown once above it). Labels are
+ *  glossary terms (data-term) so a beginner can tap any rank for a definition. */
+export function isnadLegend() {
+  const items = [
+    ["rk-sahabi", "صحابي", "sahabi"], ["rk-thiqa", "ثقة", "thiqa"],
+    ["rk-saduq", "صدوق", "saduq"], ["rk-majhul", "مجهول/مقبول", "majhul"],
+    ["rk-daif", "ضعيف", "daif"], ["rk-matruk", "متروك", "matruk"],
+    ["rk-unknown", "غير محدد", null],
+  ];
+  return `<div class="isnad-legend">${items
+    .map(([c, l, term]) => `<span class="lg"><i style="background:var(--${c})"></i>${
+      term ? `<span class="term" data-term="${term}" tabindex="0" role="button">${l}</span>` : l}</span>`)
+    .join("")}<span class="lg"><i style="background:transparent;border:1.5px dashed var(--critical)"></i><span class="term" data-term="inqita" tabindex="0" role="button">انقطاع</span></span>` +
+    `<span class="lg muted">لون الخط = أضعف راوٍ فيه · سماكته = عدد الطرق</span></div>`;
+}
 
 export const rankBadge = (rank) =>
   rank ? `<span class="badge ${rankClass(rank)}">${esc(rank)}</span>` : "";

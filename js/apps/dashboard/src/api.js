@@ -1,9 +1,14 @@
 /** API client — all data access goes through here. */
+import { scopeParam, getScopeIds } from "./components/scope.js";
 const BASE = "/api";
+
+// endpoints that must always see the FULL corpus (never scoped)
+const UNSCOPED = /^\/(books|rawi|alem|topic)/;
 
 async function get(path, params) {
   const u = new URL(BASE + path, location.origin);
-  for (const [k, v] of Object.entries(params ?? {}))
+  const merged = UNSCOPED.test(path) ? params : { ...scopeParam(), ...params };
+  for (const [k, v] of Object.entries(merged ?? {}))
     if (v != null && v !== "") u.searchParams.set(k, v);
   const res = await fetch(u);
   if (res.status === 404) return null;   // pages render their own not-found state
@@ -18,10 +23,14 @@ export const api = {
   searchRawis: (q, limit = 20) => get("/search/rawis", { q, limit }),
   semanticGroups: (q, limit = 10) => get("/semantic/groups", { q, limit }),
   hadith: (id) => get(`/hadith/${id}`),
+  hadithWhy: (id) => get(`/hadith/${id}/why`),
+  hadithItibar: (id, rawi) => get(`/hadith/${id}/itibar`, rawi ? { rawi } : {}),
   hadithNav: (id) => get(`/hadith/${id}/nav`),
   bookHadithNo: (bookId, no) => get(`/book/${bookId}/no/${no}`),
   group: (id, limit = 30, offset = 0) => get(`/group/${id}`, { limit, offset }),
-  groupTree: (id, sahabi) => get(`/group/${id}/tree`, sahabi ? { sahabi } : {}),
+  groupTree: (id, params) => get(`/group/${id}/tree`, params ?? {}),
+  groupMatns: (id) => get(`/group/${id}/matns`),
+  groupEdge: (id, from, to, filters = {}) => get(`/group/${id}/edge`, { from, to, ...filters }),
   rawi: (id) => get(`/rawi/${id}`),
   rawiHadiths: (id, limit = 20, offset = 0) => get(`/rawi/${id}/hadiths`, { limit, offset }),
   alem: (id, limit = 50, offset = 0) => get(`/alem/${id}`, { limit, offset }),
@@ -41,7 +50,7 @@ export async function chatStream({ question, history }, { onSources, onDelta, on
     res = await fetch(BASE + "/chat", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ question, history }),
+      body: JSON.stringify({ question, history, books: getScopeIds() ?? undefined }),
       signal,
     });
   } catch (e) {

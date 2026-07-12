@@ -3,14 +3,16 @@ import { esc, fmt } from "../util.js";
 import { statTiles, bars } from "../components/charts.js";
 
 export async function home() {
-  const { counts, tasnifs, topRawis, topGroups, grades } = await api.stats();
+  const stats = await api.stats();
+  const { counts, tasnifs, topRawis, topGroups, grades, scopedBooks } = stats;
   const topGroupDocs = await Promise.all(
     (topGroups ?? []).slice(0, 6).map((g) => api.group(g.groupId, 0).catch(() => null)));
 
   return `
   <div class="search-hero">
     <h1>الجامع</h1>
-    <p>شبكة معرفية تربط ${fmt(counts.hadiths)} حديثاً بأسانيدها ورواتها ومعانيها — من ${fmt(counts.books)} كتاباً</p>
+    <p>شبكة معرفية تربط ${fmt(counts.hadiths)} حديثاً بأسانيدها ورواتها ومعانيها — من ${fmt(counts.books)} كتاباً
+    ${scopedBooks ? `<br/><span class="badge grade-hasan" style="margin-top:6px">الأرقام ضمن ${fmt(scopedBooks)} كتاباً مختاراً — غيّرها من زرّ 📚 أعلى الصفحة</span>` : ""}</p>
     <form class="search-box" id="hero-search">
       <input name="q" placeholder="ابحث بنص الحديث أو بالمعنى…" autocomplete="off" autofocus />
       <button>بحث</button>

@@ -12,7 +12,7 @@
  *
  * mountIsnadTree(container, tree, { budget, fetchRawi }) → { destroy }
  */
-import { esc, fmt, rankBadge, hijri } from "../util.js";
+import { esc, fmt, rankBadge, hijri, rankVar, edgeVar, isnadLegend, gradeBadge } from "../util.js";
 
 const NODE_W = 150, NODE_H = 34, GAP_Y = 86, PAD = 30, MIN_GAP_X = 24;
 const EXPAND_STEP = 12;
@@ -47,9 +47,12 @@ function layout(nodes, edges) {
     }
     if (!changed) break;
   }
+  // Sink only TRUE book-authors (role from the full unpruned graph) to the
+  // bottom shelf. A mid-chain narrator whose children are merely pruned by the
+  // budget must keep his depth-based layer, not be mistaken for an author.
   const maxLayer = Math.max(1, ...layer.values());
   for (const n of nodes)
-    if (!(succ.get(n.rawiId)?.length) && n.rawiId !== 0) layer.set(n.rawiId, maxLayer);
+    if (n.role === "author" && n.rawiId !== 0) layer.set(n.rawiId, maxLayer);
 
   const layers = [];
   for (const n of nodes) (layers[layer.get(n.rawiId)] ??= []).push(n);
@@ -81,7 +84,7 @@ function layout(nodes, edges) {
 
 // ── component ─────────────────────────────────────────────────────────────────
 
-export function mountIsnadTree(container, tree, { budget = 46, fetchRawi } = {}) {
+export function mountIsnadTree(container, tree, { budget = 46, fetchRawi, onEdge } = {}) {
   const all = { nodes: tree.nodes, edges: tree.edges };
   const byId = new Map(all.nodes.map((n) => [n.rawiId, n]));
   const neighbors = new Map(); // id -> Set(ids) via any edge
@@ -99,12 +102,14 @@ export function mountIsnadTree(container, tree, { budget = 46, fetchRawi } = {})
   container.classList.add("tree-wrap");
   container.innerHTML = `
     <div class="tree-toolbar">
+      <button data-act="all" class="tree-all" title="عرض كل الأسانيد / العودة للمختصر">توسيع كل الأسانيد</button>
       <button data-act="fs" title="ملء الشاشة">⛶</button>
       <button data-act="fit" title="ملاءمة العرض">⌂</button>
       <button data-act="zin" title="تكبير">+</button>
       <button data-act="zout" title="تصغير">−</button>
       <span class="tree-note" id="tnote"></span>
     </div>
+    ${isnadLegend()}
     <div class="tree-stage">
       <svg class="isnad-tree" direction="rtl" font-family="var(--font-ui)">
         <g class="cam"><g class="edges"></g><g class="nodes"></g></g>
@@ -148,16 +153,22 @@ export function mountIsnadTree(container, tree, { budget = 46, fetchRawi } = {})
     const vEdges = all.edges.filter((e) => visible.has(e.from) && visible.has(e.to));
     world = layout(vNodes, vEdges);
 
+    // edge WIDTH = number of routes (popularity); COLOR = weaker endpoint's
+    // reliability (the chain is as strong as its weakest link)
     const maxE = Math.max(1, ...vEdges.map((e) => e.count));
     gEdges.innerHTML = vEdges.map((e) => {
       const a = world.xy.get(e.from), b = world.xy.get(e.to);
       if (!a || !b) return "";
-      const w = 1 + Math.min(6, Math.log2(e.count + 1) * 1.7);
-      const op = 0.2 + 0.5 * (e.count / maxE);
+      const w = 1.4 + Math.min(6, Math.log2(e.count + 1) * 1.7);
+      const op = 0.55 + 0.4 * (e.count / maxE);   // floor raised so lone routes stay visible
       const my = (a.y + b.y) / 2;
-      return `<path d="M${a.x},${a.y + NODE_H / 2} C${a.x},${my} ${b.x},${my} ${b.x},${b.y - NODE_H / 2}"
-        fill="none" stroke="var(--accent)" stroke-width="${w.toFixed(1)}" opacity="${op.toFixed(2)}"
-        data-from="${e.from}" data-to="${e.to}"><title>${esc(byId.get(e.from)?.name ?? "")} ← ${esc(byId.get(e.to)?.name ?? "")} · ${fmt(e.count)} طريق</title></path>`;
+      const color = edgeVar(byId.get(e.from)?.rank ?? "", byId.get(e.to)?.rank ?? "");
+      const d = `M${a.x},${a.y + NODE_H / 2} C${a.x},${my} ${b.x},${my} ${b.x},${b.y - NODE_H / 2}`;
+      // wide transparent hit path (easy to click) + thin colored visible path
+      return `<path class="edge" d="${d}" fill="none" stroke="transparent" stroke-width="16"
+        data-from="${e.from}" data-to="${e.to}"><title>${esc(byId.get(e.from)?.name ?? "")} ← ${esc(byId.get(e.to)?.name ?? "")} · ${fmt(e.count)} طريق — اضغط لرواياته</title></path>
+      <path class="edge-vis" data-from="${e.from}" data-to="${e.to}" d="${d}"
+        fill="none" stroke="${color}" stroke-width="${w.toFixed(1)}" opacity="${op.toFixed(2)}" pointer-events="none"></path>`;
     }).join("");
 
     const madarId = tree.madar?.rawiId;
@@ -165,11 +176,13 @@ export function mountIsnadTree(container, tree, { budget = 46, fetchRawi } = {})
       const p = world.xy.get(n.rawiId);
       if (!p) return "";
       const isMadar = n.rawiId === madarId;
+      // node color = the narrator's reliability, so good/bad reads at a glance
+      const rankColor = rankVar(n.rank ?? "");
       const fill = n.role === "prophet" ? "var(--accent)"
-        : n.role === "sahabi" ? "var(--gold-soft)"
-        : n.role === "author" ? "var(--surface-2)" : "var(--surface)";
-      const stroke = n.role === "break" ? "var(--critical)"
-        : n.role === "sahabi" ? "var(--gold)" : isMadar ? "var(--accent)" : "var(--hairline)";
+        : n.role === "break" ? "var(--surface)"
+        : `color-mix(in srgb, ${rankColor} 14%, var(--surface))`;
+      const stroke = n.role === "prophet" ? "var(--accent)"
+        : n.role === "break" ? "var(--critical)" : rankColor;
       const dash = n.role === "break" ? `stroke-dasharray="4 3"` : "";
       const ink = n.role === "prophet" ? "var(--accent-ink)" : "var(--ink)";
       const cps = Array.from(n.name ?? "");
@@ -178,7 +191,7 @@ export function mountIsnadTree(container, tree, { budget = 46, fetchRawi } = {})
       const clickable = n.role !== "prophet" && n.role !== "break";
       return `<g class="tnode ${clickable ? "clickable" : ""}" data-id="${n.rawiId}" ${clickable ? 'tabindex="0" role="button"' : ""}>
         <rect x="${p.x - NODE_W / 2}" y="${p.y - NODE_H / 2}" width="${NODE_W}" height="${NODE_H}"
-          rx="9" fill="${fill}" stroke="${stroke}" stroke-width="${isMadar ? 2 : 1.2}" ${dash}/>
+          rx="9" fill="${fill}" stroke="${stroke}" stroke-width="${isMadar ? 2.6 : 1.7}" ${dash}/>
         <text x="${p.x}" y="${p.y + 1}" text-anchor="middle" dominant-baseline="middle"
           fill="${ink}" font-size="12.5" font-weight="${n.role === "sahabi" || isMadar ? 600 : 400}">${esc(label)}</text>
         ${isMadar ? `<text x="${p.x}" y="${p.y - NODE_H / 2 - 6}" text-anchor="middle" fill="var(--accent)" font-size="10.5" font-weight="700">◈ مدار الحديث</text>` : ""}
@@ -187,7 +200,9 @@ export function mountIsnadTree(container, tree, { budget = 46, fetchRawi } = {})
       </g>`;
     }).join("");
 
-    note.textContent = `${fmt(vNodes.length)} من ${fmt(all.nodes.length)} راوياً — اضغط +N لتوسيع فرع`;
+    note.textContent = expandedAll
+      ? `عرض كل الرواة (${fmt(vNodes.length)})`
+      : `عرض ${fmt(vNodes.length)} من ${fmt(all.nodes.length)} راوياً — المختصر يُبرز الأكثر وروداً في الطرق؛ وسّع براوٍ (+N) أو أظهر الكل`;
 
     if (beforeScreen && keepNodeId != null && world.xy.get(keepNodeId)) {
       const p = world.xy.get(keepNodeId);
@@ -211,12 +226,31 @@ export function mountIsnadTree(container, tree, { budget = 46, fetchRawi } = {})
     render(id);
   }
 
+  // toggle between the full graph (every isnad) and the compact backbone
+  let expandedAll = false;
+  function toggleAll() {
+    hidePopup();
+    if (expandedAll) {
+      visible.clear();
+      for (const nid of backboneSet(tree, budget)) visible.add(nid);
+      expandedAll = false;
+    } else {
+      for (const n of all.nodes) visible.add(n.rawiId);
+      expandedAll = true;
+    }
+    firstFit = true;               // refit to the new size
+    render();
+    const btn = container.querySelector('[data-act="all"]');
+    if (btn) btn.textContent = expandedAll ? "العرض المختصر" : "توسيع كل الأسانيد";
+  }
+
   // ── popup ──────────────────────────────────────────────────────────────────
   async function showPopup(id, anchorEl) {
     const n = byId.get(id);
     if (!n || !fetchRawi) return;
     const seq = ++popSeq;
     const fresh = () => seq === popSeq && !pop.hidden && pop.isConnected;
+    pop.classList.remove("edge-mode");
     pop.hidden = false;
     pop.innerHTML = `<div class="skeleton" style="height:120px;width:280px"></div>`;
     placePopup(anchorEl);
@@ -281,29 +315,83 @@ export function mountIsnadTree(container, tree, { budget = 46, fetchRawi } = {})
     pop.style.left = `${x}px`;
     pop.style.top = `${Math.max(8, y)}px`;
   }
-  const hidePopup = () => { pop.hidden = true; popSeq++; };
+  function placeAt(clientX, clientY) {
+    const sr = stage.getBoundingClientRect();
+    let x = clientX - sr.left - pop.offsetWidth / 2;
+    let y = clientY - sr.top + 12;
+    x = Math.max(8, Math.min(x, sr.width - pop.offsetWidth - 8));
+    if (y + pop.offsetHeight > sr.height - 8)
+      y = Math.max(8, clientY - sr.top - pop.offsetHeight - 12);
+    pop.style.left = `${x}px`;
+    pop.style.top = `${y}px`;
+  }
+  const hidePopup = () => { pop.hidden = true; popSeq++; pop.classList.remove("edge-mode"); };
+
+  // edge tap → popup listing the narrations passing through this line
+  async function showEdgePopup(from, to, clientX, clientY) {
+    if (!onEdge) return;
+    const seq = ++popSeq;
+    const fresh = () => seq === popSeq && !pop.hidden && pop.isConnected;
+    pop.classList.add("edge-mode");
+    pop.hidden = false;
+    pop.innerHTML = `<div class="skeleton" style="height:80px;width:320px"></div>`;
+    placeAt(clientX, clientY);
+    let narr;
+    try { narr = await onEdge(from, to); }
+    catch { if (fresh()) pop.innerHTML = `<div class="muted">تعذّر التحميل</div>`; return; }
+    if (!fresh()) return;
+    const a = byId.get(from), b = byId.get(to);
+    pop.innerHTML = `
+      <div class="spread" style="margin-bottom:4px">
+        <strong style="font-size:13.5px">روايات هذا الخط <span class="tag-count">${fmt(narr.length)}${narr.length >= 60 ? "+" : ""}</span></strong>
+      </div>
+      <div class="muted" style="font-size:12px;margin-bottom:8px">${esc(b?.name ?? "")} ← ${esc(a?.name ?? "")}</div>
+      <div class="edge-list">${narr.map((h) => `
+        <a class="edge-item" href="#/hadith/${h.hadithId}">
+          <div class="edge-item-head">
+            <span class="muted">${esc(h.bookName ?? "")}${h.noInBook ? ` · ${fmt(h.noInBook)}` : ""}</span>
+            ${gradeBadge(h.hukm)}
+          </div>
+          ${h.taraf ? `<div class="edge-item-matn">${esc(h.taraf)}</div>` : ""}
+        </a>`).join("") || `<div class="muted">لا روايات</div>`}</div>`;
+    placeAt(clientX, clientY);
+  }
 
   // ── interactions ───────────────────────────────────────────────────────────
-  let drag = null, moved = false;
+  // Taps are handled on pointerup from the PRESS target — immune to the
+  // pointer-capture retargeting that otherwise sends the click to the stage
+  // and makes node/edge clicks silently do nothing. Capture only once a real
+  // drag begins, so a plain tap never captures.
+  let drag = null, moved = false, downTarget = null;
   stage.addEventListener("pointerdown", (e) => {
     if (e.target.closest(".rawi-pop")) return;
-    drag = { x: e.clientX, y: e.clientY, tx: cam.tx, ty: cam.ty };
+    drag = { x: e.clientX, y: e.clientY, tx: cam.tx, ty: cam.ty, id: e.pointerId };
     moved = false;
-    stage.setPointerCapture(e.pointerId);
+    downTarget = e.target;
   });
   stage.addEventListener("pointermove", (e) => {
     if (!drag) return;
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-    if (Math.abs(dx) + Math.abs(dy) > 4) moved = true;
-    if (moved) {
-      cam.tx = drag.tx + dx;
-      cam.ty = drag.ty + dy;
-      applyCam();
-      hidePopup();
+    if (!moved && Math.abs(dx) + Math.abs(dy) > 4) {
+      moved = true;
+      try { stage.setPointerCapture(drag.id); } catch { /* ignore */ }
     }
+    if (moved) { cam.tx = drag.tx + dx; cam.ty = drag.ty + dy; applyCam(); hidePopup(); }
   });
-  stage.addEventListener("pointerup", () => { drag = null; });
-  stage.addEventListener("pointercancel", () => { drag = null; });
+  const endDrag = () => { drag = null; };
+  stage.addEventListener("pointercancel", endDrag);
+  stage.addEventListener("pointerup", (e) => {
+    const wasDrag = moved, dt = downTarget;
+    endDrag();
+    if (wasDrag || !dt || !dt.closest) return;   // a pan, not a tap
+    const ex = dt.closest(".expand");
+    if (ex) { expand(Number(ex.dataset.expand)); return; }
+    const g = dt.closest(".tnode.clickable");
+    if (g) { showPopup(Number(g.dataset.id), g); return; }
+    const ed = dt.closest("path.edge");
+    if (ed && onEdge) { showEdgePopup(Number(ed.dataset.from), Number(ed.dataset.to), e.clientX, e.clientY); return; }
+    hidePopup();
+  });
   stage.addEventListener("wheel", (e) => {
     if (e.target.closest(".rawi-pop")) return;   // let the dossier card scroll
     e.preventDefault();
@@ -317,15 +405,6 @@ export function mountIsnadTree(container, tree, { budget = 46, fetchRawi } = {})
     applyCam();
     hidePopup();
   }, { passive: false });
-
-  svg.addEventListener("click", (e) => {
-    if (moved) return;                       // it was a pan, not a click
-    const ex = e.target.closest(".expand");
-    if (ex) { expand(Number(ex.dataset.expand)); return; }
-    const g = e.target.closest(".tnode.clickable");
-    if (g) showPopup(Number(g.dataset.id), g);
-    else hidePopup();
-  });
   svg.addEventListener("dblclick", (e) => {
     const g = e.target.closest(".tnode.clickable");
     if (g) location.hash = `#/rawi/${g.dataset.id}`;
@@ -337,26 +416,35 @@ export function mountIsnadTree(container, tree, { budget = 46, fetchRawi } = {})
     }
   });
 
-  // hover: light routes through the node
+  // hover a node → light its routes; hover an edge → light just that edge
+  const litReset = () =>
+    gEdges.querySelectorAll(".edge-vis").forEach((p) => { p.style.stroke = ""; p.style.opacity = ""; });
   svg.addEventListener("mouseover", (e) => {
     const g = e.target.closest(".tnode");
-    if (!g) return;
-    const id = g.dataset.id;
-    gEdges.querySelectorAll("path").forEach((p) => {
-      const hit = p.dataset.from === id || p.dataset.to === id;
-      p.style.stroke = hit ? "var(--gold)" : "";
-      p.style.opacity = hit ? "0.95" : "";
-    });
+    if (g) {
+      const id = g.dataset.id;
+      gEdges.querySelectorAll(".edge-vis").forEach((p) => {
+        const hit = p.dataset.from === id || p.dataset.to === id;
+        p.style.stroke = hit ? "var(--gold)" : "";
+        p.style.opacity = hit ? "0.98" : "";
+      });
+      return;
+    }
+    const ed = e.target.closest("path.edge");
+    if (ed) {
+      const vis = gEdges.querySelector(`.edge-vis[data-from="${ed.dataset.from}"][data-to="${ed.dataset.to}"]`);
+      if (vis) { vis.style.stroke = "var(--gold)"; vis.style.opacity = "0.98"; }
+    }
   });
   svg.addEventListener("mouseout", (e) => {
-    if (e.target.closest(".tnode"))
-      gEdges.querySelectorAll("path").forEach((p) => { p.style.stroke = ""; p.style.opacity = ""; });
+    if (e.target.closest(".tnode") || e.target.closest("path.edge")) litReset();
   });
 
   // toolbar
   container.querySelector(".tree-toolbar").addEventListener("click", (e) => {
     const act = e.target.closest("button")?.dataset.act;
     if (!act) return;
+    if (act === "all") toggleAll();
     if (act === "fit") fit();
     if (act === "zin" || act === "zout") {
       const sr = stage.getBoundingClientRect();

@@ -1,8 +1,63 @@
 # Roadmap — الجامع
 
-Backlog distilled from two multi-agent reviews (2026-07-10): a feature-ideation
-swarm (24 ranked ideas) and the v1 release gate. v1.0.0 shipped with all
-confirmed bugs fixed and 10 scholar quick-wins included.
+Backlog distilled from three multi-agent reviews: feature-ideation (24 ideas),
+the v1 release gate, and the isnad-graph audit. v1.0.0 shipped (desktop
+installers + public Docker image).
+
+## Shipped
+- **v1.0.0** — canonical KG, monlite app DB + Arabic FTS, semantic search, cited
+  RAG chat, dashboard, desktop app (mac/win/linux installers), Docker image on
+  Docker Hub (`emadjumaah/hadith`), data public on Hugging Face.
+- **Isnad graph** — grade-colored nodes, weakest-link colored edges; click a
+  narrator → dossier card; click a line → popup of its narrations (with matn);
+  filters (companion / grade / book / problems-only); expand-one (+N) and
+  expand-all toggle; fullscreen, pan/zoom. Both meaning-group tree and per-hadith
+  chain view. All self-explanatory in Arabic.
+- **Teaching wins** — «لماذا هذا الحكم؟» grade-aware chain analysis; interactive
+  glossary (tap any term for a definition).
+- **Corpus scope** — pick active books (default top-30, presets الصحيحان/الستة/
+  التسعة/الكل); search, graphs, narrations AND all counts/stats recompute within
+  the selection. (Chat + narrator profiles still corpus-wide.)
+
+- **Auto-i'tibar** ✓ — on any hadith page «الاعتبار»: pick the studied narrator
+  from the reference chain, and every route of the meaning is bucketed into
+  متابعة تامة (shares his shaykh) / قاصرة (agrees higher) / شاهد (other
+  Companion). Verified classically correct on «إنما الأعمال بالنيات» (focus the
+  madār يحيى → 11 متابعات تامة at his level).
+
+## Next up
+- Reprioritize with owner. Candidates below (v1.1 polish + v2 features).
+
+## Isnad-graph audit (2026-07-11) — feature ideas
+
+From a 10-agent audit of the new grade-colored isnad X-ray + filters. All 5
+confirmed bugs were fixed (rank-severity ordering, tree author-sinking, edge
+endpoint filter blocker, popup listener leak, distinct-count cap).
+
+**For students** (ranked by impact):
+1. «لماذا هذا الإسناد ضعيف؟» — auto-explain WHY a chain is weak (weakest link, tadlis, inqita') · small
+2. Interactive term glossary tooltips (تدليس، اختلاط، مدار، متابعة، شاهد، عنعنة) · small
+3. Guided learning path — 10 stations from real data · medium
+4. «احكم على السند» — grade-the-chain quiz mode · medium
+5. Tabaqat timeline (narrators across generations) · medium
+6. صحيح vs ضعيف of the same matn — side-by-side route comparison · medium
+7. Highlight متابعة / شاهد on the isnad tree · medium
+
+**For scholars** (ranked by impact):
+1. Chronological inqita' auditor — birth/death overlap check on every adjacent pair · large
+2. Performance-formula + mudallis-'an'ana detector · medium
+3. Route ladder — weakest link per route, ranked · small
+4. Auto-i'tibar classifier (متابعة تامة/قاصرة/شاهد) · medium
+5. Matn variant diff across routes · medium
+6. Jarh-wa-ta'dil aggregator + mukhtalaf-fih detector · medium
+7. Publish-ready takhrij dossier export · medium
+8. Network-wide tafarrud/gharabah detection · large
+
+**Remaining polish (minors/UX from the audit):** keyboard access for +N pills &
+edges; focus-into-popup; show all sahabis/books (not just top 6); touch targets
+& pinch-zoom; distinguish the two color taxonomies (narrator-reliability vs
+hadith-grade) for beginners; copy-citation number for books ≥1000; static
+path-traversal guard hardening.
 
 ## v1.1 — polish (small, high value)
 

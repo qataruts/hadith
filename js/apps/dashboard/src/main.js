@@ -1,6 +1,8 @@
 /** الجامع — SPA shell + hash router. */
 import "./styles.css";
 import { esc } from "./util.js";
+import { initGlossary } from "./components/glossary.js";
+import { openScopeModal, scopeLabel, ensureDefaultScope } from "./components/scopebar.js";
 import { home } from "./pages/home.js";
 import { search } from "./pages/search.js";
 import { hadithPage } from "./pages/hadith.js";
@@ -44,6 +46,7 @@ function shell(content) {
     <nav class="nav">${NAV.map(([h, t]) =>
       `<a href="${h}" class="${(h === "#/" ? cur === "#/" : cur.startsWith(h)) ? "active" : ""}">${t}</a>`).join("")}
     </nav>
+    <button class="scope-btn" id="scope-btn" title="اختيار نطاق الكتب التي يعمل ضمنها التطبيق">📚 <span id="scope-lbl"></span></button>
     <button class="icon-btn" id="theme-toggle" title="تبديل الوضع الليلي" aria-label="تبديل الوضع الليلي">◐</button>
   </div></header>
   <main class="wrap" id="page">${content}</main>`;
@@ -87,6 +90,11 @@ function partial(token, html) {
 }
 
 function bindShell() {
+  const sb = document.getElementById("scope-btn");
+  if (sb) {
+    document.getElementById("scope-lbl").textContent = scopeLabel();
+    sb.onclick = openScopeModal;
+  }
   document.getElementById("theme-toggle").onclick = () => {
     const cur = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
     document.documentElement.dataset.theme = cur;
@@ -98,5 +106,8 @@ const saved = localStorage.getItem("theme");
 document.documentElement.dataset.theme =
   saved ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
 
+initGlossary();
+ensureDefaultScope();                    // first-ever load → default to top-30 books
+addEventListener("scope:change", route); // re-render the current view on scope change
 addEventListener("hashchange", route);
 route();

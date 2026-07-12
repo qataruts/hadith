@@ -72,10 +72,13 @@ const q = {
   groupHadiths: kg.prepare(
     `SELECT id FROM hadiths WHERE group_id = ? ORDER BY book_id, no_inbook LIMIT ? OFFSET ?`),
   groupChains: kg.prepare(
-    `SELECT s.id sanad_id, s.matn grade, sr.pos, sr.rawi_id, r.nickname, r.rank, r.tabaka
+    `SELECT s.id sanad_id, s.matn grade, s.hadith_id, sr.pos, sr.rawi_id,
+            r.nickname, r.rank, r.rank_no, r.tabaka, r.has_tadlis, r.has_ikhtilat,
+            h.book_id
      FROM sanads s
      JOIN sanad_rawis sr ON sr.sanad_id = s.id
      JOIN rawis r ON r.id = sr.rawi_id
+     LEFT JOIN hadiths h ON h.id = s.hadith_id
      WHERE s.group_id = ? ORDER BY s.id, sr.pos`),
   bookHadiths: kg.prepare(
     `SELECT id FROM hadiths WHERE book_id = ? ORDER BY no_inbook LIMIT ? OFFSET ?`),
@@ -84,6 +87,14 @@ const q = {
      JOIN rawis r ON r.id = q.rawi_id WHERE q.alem_id = ? ORDER BY q.id LIMIT ? OFFSET ?`),
   topicHadiths: kg.prepare(
     `SELECT id FROM hadiths WHERE group_id = ? ORDER BY book_id, no_inbook LIMIT ?`),
+  whyRows: kg.prepare(
+    `SELECT s.id sanad_id, s.matn grade, s.hukum, s.length, sr.pos,
+            r.id rawi_id, r.nickname, r.rank, r.tabaka,
+            r.has_tadlis, r.has_ikhtilat, r.is_stub
+     FROM sanads s
+     JOIN sanad_rawis sr ON sr.sanad_id = s.id
+     JOIN rawis r ON r.id = sr.rawi_id
+     WHERE s.hadith_id = ? ORDER BY s.id, sr.pos`),
 };
 
 /** Clamp a query param to [0, max]; NaN/negative/garbage → the default. */
@@ -168,6 +179,57 @@ async function semanticGroups(query, limit) {
 const matnOf = (h) =>
   h.matnStart != null ? h.nass.slice(h.matnStart, h.matnEnd) : h.nass;
 
+// narrator reliability → severity (0 best … 5 worst), mirrors the client's util.js
+const RANK_TIERS = [
+  [/صحابي/, 0, "صحابي"], [/متروك|كذاب|وضاع|يضع|متهم|دجال/, 5, "متروك"],
+  [/ضعيف|منكر|واه|ساقط/, 4, "ضعيف"], [/مجهول|مستور|مقبول|لين|لا يعرف/, 3, "مجهول"],
+  [/صدوق|لا بأس|حسن/, 2, "صدوق"], [/ثقة|حافظ|إمام|حجة|متقن|ثبت|جبل/, 1, "ثقة"],
+];
+const rankSevServer = (rank = "") => {
+  for (const [re, sev, label] of RANK_TIERS) if (re.test(rank)) return { sev, label };
+  return { sev: 3, label: "غير محدد" };
+};
+const isBreakName = (name = "") =>
+  /موضع (انقطاع|ارسال|إرسال|تعليق|إعضال)|مبهم|غير معرف/.test(name);
+
+// isnad-graph filter helpers (shared by /tree and /edge so results always agree)
+const gradeKey = (m = "") =>
+  /صحيح/.test(m) ? "sahih" : /حسن/.test(m) ? "hasan"
+  : /موضوع|شديد الضعف|منكر/.test(m) ? "mawdu" : /ضعيف|لين/.test(m) ? "daif" : "other";
+const isMudallisWeak = (r) =>
+  r.has_tadlis || r.has_ikhtilat || /متروك|كذاب|وضاع|يضع|متهم|ضعيف|منكر/.test(r.rank ?? "");
+
+/** Group the flat groupChains rows into per-sanad chains with grade/book/problem. */
+function buildChains(rows) {
+  const chains = new Map();
+  for (const r of rows) {
+    const c = chains.get(r.sanad_id)
+      ?? { sanadId: r.sanad_id, grade: r.grade, bookId: r.book_id,
+           hadithId: r.hadith_id, rawis: [], problem: false };
+    c.rawis.push(r);
+    if (isMudallisWeak(r)) c.problem = true;
+    chains.set(r.sanad_id, c);
+  }
+  return chains;
+}
+/** Does a filter set admit this chain? (rawis are pos-ascending: 0=author…last=sahabi) */
+function chainPasses(c, f) {
+  if (f.books && !f.books.has(c.bookId)) return false;   // corpus scope
+  if (f.sahabi && c.rawis[c.rawis.length - 1].rawi_id !== f.sahabi) return false;
+  if (f.grade && gradeKey(c.grade) !== f.grade) return false;
+  if (f.book && c.bookId !== f.book) return false;
+  if (f.problems && !c.problem) return false;
+  return true;
+}
+
+/** Parse ?books=1,2,3 (corpus scope) → Set<int> or null (whole corpus). */
+function parseBookScope(u) {
+  const raw = u.searchParams.get("books");
+  if (!raw) return null;
+  const s = new Set(raw.split(",").map(Number).filter(Boolean));
+  return s.size ? s : null;
+}
+
 // Semantic hits → group docs: drop empty groups (no narrations in corpus),
 // lightly boost well-attested meanings so famous hadith outrank obscure
 // near-duplicates at similar cosine distance.
@@ -187,7 +249,7 @@ async function semanticGroupDocs(query, limit) {
   return { hits: scored };
 }
 
-async function ragContext(qs, nGroups, perGroup) {
+async function ragContext(qs, nGroups, perGroup, scope) {
   const ranked = new Map(); // groupId -> {via, score}
   const sem = await semanticGroupDocs(qs, nGroups);
   for (const h of sem.hits ?? [])
@@ -195,11 +257,21 @@ async function ragContext(qs, nGroups, perGroup) {
   for (const g of await groups.search(normalizeArabic(qs), { limit: nGroups }))
     if (!ranked.has(g.groupId)) ranked.set(g.groupId, { via: "fts" });
 
+  // when scoped, pull each group's narrations only from the active books
+  const scopeList = scope ? [...scope] : null;
+  const scopePh = scopeList ? scopeList.map(() => "?").join(",") : "";
+  const groupIds = (gid) => scopeList
+    ? kg.prepare(`SELECT id FROM hadiths WHERE group_id = ? AND book_id IN (${scopePh})
+                  ORDER BY book_id, no_inbook LIMIT ?`).all(gid, ...scopeList, perGroup).map((r) => r.id)
+    : q.groupHadiths.all(gid, perGroup, 0).map((r) => r.id);
+
   const out = [];
-  for (const [gid, how] of [...ranked.entries()].slice(0, nGroups)) {
+  for (const [gid, how] of [...ranked.entries()]) {
+    if (out.length >= nGroups) break;
     const g = await groups.findFirst({ where: { groupId: gid } });
     if (!g) continue;
-    const ids = q.groupHadiths.all(gid, perGroup, 0).map((r) => r.id);
+    const ids = groupIds(gid);
+    if (!ids.length) continue;                 // group has nothing in the active books
     out.push({
       groupId: gid, via: how.via, score: how.score,
       meaning: g.nass, hadithCount: g.hadithCount,
@@ -211,7 +283,8 @@ async function ragContext(qs, nGroups, perGroup) {
       })),
     });
   }
-  const direct = await hadiths.search(normalizeArabic(qs), { limit: 5 });
+  let direct = await hadiths.search(normalizeArabic(qs), { limit: scope ? 20 : 5 });
+  if (scope) direct = direct.filter((h) => scope.has(h.bookId)).slice(0, 5);
   return {
     query: qs,
     groups: out,
@@ -220,6 +293,7 @@ async function ragContext(qs, nGroups, perGroup) {
       hukm: h.hukm, matn: matnOf(h).slice(0, 500),
     })),
     semanticAvailable: sem.hits != null,
+    scoped: scope ? scope.size : null,
   };
 }
 
@@ -233,11 +307,12 @@ const CHAT_SYSTEM = `أنت مساعد بحثي متخصص في علم الحد�
 - رتّب الجواب: خلاصة موجزة، ثم التفصيل بالأدلة، ثم فوائد إسنادية إن وجدت.`;
 
 async function chatHandler(req, res, body) {
-  const { question, history = [] } = body;
+  const { question, history = [], books } = body;
   if (!question?.trim()) throw new Error("question is required");
   if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY not set on server");
 
-  const ctx = await ragContext(question.trim(), 6, 3);
+  const scope = Array.isArray(books) && books.length ? new Set(books.map(Number)) : null;
+  const ctx = await ragContext(question.trim(), 6, 3, scope);
   const sources = [];
   for (const g of ctx.groups)
     for (const n of g.narrations)
@@ -342,22 +417,52 @@ function serveStatic(u, res) {
 
 // ---- routes -----------------------------------------------------------------
 const routes = {
-  "GET /api/stats": async () => (await meta.findFirst({ where: { key: "stats" } })),
+  "GET /api/stats": async (u) => {
+    const base = await meta.findFirst({ where: { key: "stats" } });
+    const scope = parseBookScope(u);
+    if (!scope) return base;
+    const list = [...scope].map(Number).filter(Number.isFinite);
+    const ph = list.map(() => "?").join(",");
+    const one = (sql) => Object.values(kg.prepare(sql).get(...list))[0];
+    const counts = {
+      books: list.length,
+      hadiths: one(`SELECT COUNT(*) n FROM hadiths WHERE book_id IN (${ph})`),
+      sanads: one(`SELECT COUNT(*) n FROM sanads s JOIN hadiths h ON h.id = s.hadith_id WHERE h.book_id IN (${ph})`),
+      groups: one(`SELECT COUNT(DISTINCT group_id) n FROM hadiths WHERE book_id IN (${ph}) AND group_id IS NOT NULL`),
+      rawis: one(`SELECT COUNT(DISTINCT sr.rawi_id) n FROM sanad_rawis sr
+                  JOIN sanads s ON s.id = sr.sanad_id JOIN hadiths h ON h.id = s.hadith_id
+                  WHERE h.book_id IN (${ph})`),
+      alems: base.counts.alems, aqwal: base.counts.aqwal, topics: base.counts.topics,
+    };
+    const topGroups = kg.prepare(
+      `SELECT group_id groupId, COUNT(*) narrations FROM hadiths
+       WHERE book_id IN (${ph}) AND group_id IS NOT NULL
+       GROUP BY group_id ORDER BY narrations DESC LIMIT 30`).all(...list);
+    return { ...base, counts, topGroups, scopedBooks: list.length };
+  },
 
   "GET /api/search/hadiths": async (u) => {
     const qs = normalizeArabic(u.searchParams.get("q") ?? "");
     const limit = clamp(u.searchParams.get("limit"), 20, 100);
     if (!qs) return { hits: [] };
-    const hits = await hadiths.search(qs, { limit });
-    return { hits: hits.map(trim) };
+    const scope = parseBookScope(u);
+    // over-fetch when scoped so the post-filter still fills the page
+    const hits = await hadiths.search(qs, { limit: scope ? limit * 6 : limit });
+    const kept = scope ? hits.filter((h) => scope.has(h.bookId)) : hits;
+    return { hits: kept.slice(0, limit).map(trim) };
   },
 
   "GET /api/search/groups": async (u) => {
     const qs = normalizeArabic(u.searchParams.get("q") ?? "");
     const limit = clamp(u.searchParams.get("limit"), 20, 100);
     if (!qs) return { hits: [] };
-    const hits = await groups.search(qs, { limit });
-    return { hits: hits.map((g) => ({
+    const scope = parseBookScope(u);
+    const hits = await groups.search(qs, { limit: scope ? limit * 4 : limit });
+    // a group is in-scope if any of its books is active
+    const kept = scope
+      ? hits.filter((g) => (g.books ?? []).some((b) => scope.has(b.bookId)))
+      : hits;
+    return { hits: kept.slice(0, limit).map((g) => ({
       groupId: g.groupId, nass: g.nass, hadithCount: g.hadithCount,
       sahabiCount: g.sahabis.length, bookCount: g.books.length,
     })) };
@@ -380,6 +485,131 @@ const routes = {
 
   "GET /api/hadith/:id": async (_u, id) =>
     (await hadiths.findFirst({ where: { hadithId: Number(id) } })),
+
+  // الاعتبار — classify every route of this hadith's meaning, relative to a
+  // studied narrator R: متابعة تامة (someone else shares R's own shaykh),
+  // متابعة قاصرة (agreement only higher up), شاهد (different Companion).
+  "GET /api/hadith/:id/itibar": async (u, id) => {
+    const grp = kg.prepare("SELECT group_id FROM hadiths WHERE id = ?").get(Number(id));
+    if (!grp?.group_id) return { available: false };
+    const groupId = grp.group_id;
+
+    // reference chain (first sanad of this hadith), transmission order (0 = Companion)
+    const refRows = q.whyRows.all(Number(id));
+    if (!refRows.length) return { available: false };
+    const refBySanad = new Map();
+    for (const r of refRows) (refBySanad.get(r.sanad_id) ?? refBySanad.set(r.sanad_id, []).get(r.sanad_id)).push(r);
+    const refChain = [...refBySanad.values()][0];               // pos-ascending (0 = author)
+    const refSanadId = refChain[0].sanad_id;
+    const refSeq = [...refChain].reverse();                     // transmission order, [0] = Companion
+    if (refSeq.length < 2) return { available: false };
+    const S = refSeq[0].rawi_id;                                // Companion
+
+    // studied narrator R (?rawi=) — default: the narrator just below the Companion
+    const rParam = Number(u.searchParams.get("rawi") || 0);
+    let rIdx = rParam ? refSeq.findIndex((x) => x.rawi_id === rParam) : -1;
+    if (rIdx < 1) rIdx = 1;
+    const R = refSeq[rIdx];
+    const Sh = refSeq[rIdx - 1];                                // R's shaykh (toward Companion)
+    const aboveSh = new Set(refSeq.slice(0, rIdx - 1).map((x) => x.rawi_id));  // strictly above Sh
+
+    // every route of the meaning
+    const chains = new Map();
+    for (const r of q.groupChains.all(groupId)) {
+      const c = chains.get(r.sanad_id)
+        ?? { hadithId: r.hadith_id, grade: r.grade, bookId: r.book_id, rows: [] };
+      c.rows.push(r);
+      chains.set(r.sanad_id, c);
+    }
+
+    const tamma = [], qasira = [], shawahid = [];
+    for (const [sid, c] of chains) {
+      if (sid === refSanadId) continue;
+      const seq = [...c.rows].reverse();                        // [0] = Companion
+      const comp = seq[0]?.rawi_id;
+      const base = { hadithId: c.hadithId, bookId: c.bookId, grade: c.grade };
+      if (comp !== S) { shawahid.push(base); continue; }        // different Companion → witness
+      const shPos = seq.findIndex((x) => x.rawi_id === Sh.rawi_id);
+      if (shPos >= 0) {
+        const below = seq[shPos + 1];                           // this route's student of Sh
+        if (below && below.rawi_id !== R.rawi_id) {
+          tamma.push({ ...base, via: below.nickname, viaId: below.rawi_id });
+          continue;
+        }
+        if (below && below.rawi_id === R.rawi_id) continue;     // passes through R itself
+      }
+      if (seq.some((x) => aboveSh.has(x.rawi_id)))              // shares an ancestor of Sh
+        qasira.push(base);
+      else
+        qasira.push({ ...base, note: "يلتقيان عند الصحابي" });
+    }
+
+    // enrich with book / number / taraf, dedupe by hadith
+    const ids = [...new Set([...tamma, ...qasira, ...shawahid].map((x) => x.hadithId))];
+    const byH = new Map((await byIds(ids)).map((d) => [d.hadithId, d]));
+    const enrich = (arr) => {
+      const seen = new Set(), out = [];
+      for (const x of arr) {
+        if (seen.has(x.hadithId)) continue;
+        seen.add(x.hadithId);
+        const d = byH.get(x.hadithId);
+        out.push({ hadithId: x.hadithId, book: bookName.get(x.bookId), noInBook: d?.noInBook,
+                   taraf: d?.taraf, hukm: d?.hukm ?? x.grade, via: x.via, note: x.note });
+      }
+      return out.slice(0, 60);
+    };
+    return {
+      available: true, groupId,
+      companion: { rawiId: S, name: refSeq[0].nickname },
+      focus: { rawiId: R.rawi_id, name: R.nickname, rank: R.rank },
+      shaykh: { rawiId: Sh.rawi_id, name: Sh.nickname },
+      chain: refSeq.map((x, i) => ({ rawiId: x.rawi_id, name: x.nickname, rank: x.rank,
+        isFocus: i === rIdx, isCompanion: i === 0 })),
+      tamma: enrich(tamma), qasira: enrich(qasira), shawahid: enrich(shawahid),
+      counts: { tamma: tamma.length, qasira: qasira.length, shawahid: shawahid.length },
+    };
+  },
+
+  // «لماذا هذا الحكم؟» — per-sanad plain-language analysis of chain health
+  "GET /api/hadith/:id/why": async (_u, id) => {
+    const rows = q.whyRows.all(Number(id));
+    if (!rows.length) return { sanads: [] };
+    const bySanad = new Map();
+    for (const r of rows) {
+      const s = bySanad.get(r.sanad_id)
+        ?? { sanadId: r.sanad_id, grade: r.grade, hukm: r.hukum, narrators: [] };
+      s.narrators.push(r);
+      bySanad.set(r.sanad_id, s);
+    }
+    const sanads = [...bySanad.values()].map((s) => {
+      const observations = [];   // neutral isnad notes (framed by grade on the client)
+      let weakest = null;
+      for (const r of s.narrators) {
+        if (isBreakName(r.nickname)) {
+          observations.push({ type: "inqita", name: r.nickname });
+          continue;
+        }
+        if (r.has_tadlis) observations.push({ type: "tadlis", rawiId: r.rawi_id, name: r.nickname });
+        if (r.has_ikhtilat) observations.push({ type: "ikhtilat", rawiId: r.rawi_id, name: r.nickname });
+        const sv = rankSevServer(r.rank ?? "");
+        if (!weakest || sv.sev > weakest.sev)
+          weakest = { rawiId: r.rawi_id, name: r.nickname, rank: r.rank, ...sv };
+      }
+      const gc = gradeKey(s.grade ?? "");   // sahih | hasan | daif | mawdu | other
+      // the weakest narrator is only presented as a DEFECT when the source ruling
+      // is itself weak; for authenticated hadith it's shown as a neutral note.
+      if (weakest && weakest.sev >= 3)
+        observations.push({ type: "weak", rawiId: weakest.rawiId, name: weakest.name,
+                            rank: weakest.rank, label: weakest.label, sev: weakest.sev });
+      return {
+        sanadId: s.sanadId, grade: s.grade, gradeClass: gc, hukm: s.hukm,
+        weakest: weakest && weakest.sev >= 3
+          ? { name: weakest.name, rank: weakest.rank, rawiId: weakest.rawiId } : null,
+        observations,
+      };
+    });
+    return { sanads };
+  },
 
   // previous/next hadith within the same book (by in-book numbering)
   "GET /api/hadith/:id/nav": async (_u, id) => {
@@ -407,8 +637,48 @@ const routes = {
     if (!g) return null;
     const limit = clamp(u.searchParams.get("limit"), 30, 200);
     const offset = clamp(u.searchParams.get("offset"), 0, 100000000);
-    const ids = q.groupHadiths.all(g.groupId, limit, offset).map((r) => r.id);
-    return { ...g, narrations: (await byIds(ids)).map(trim) };
+    const scope = parseBookScope(u);
+    if (!scope) {
+      const ids = q.groupHadiths.all(g.groupId, limit, offset).map((r) => r.id);
+      return { ...g, narrations: (await byIds(ids)).map(trim) };
+    }
+    // scoped: recompute the whole per-meaning dashboard within the active books
+    const list = [...scope].map(Number).filter(Number.isFinite);
+    const ph = list.map(() => "?").join(",");
+    const gid = g.groupId;
+    const ids = kg.prepare(
+      `SELECT id FROM hadiths WHERE group_id = ? AND book_id IN (${ph})
+       ORDER BY book_id, no_inbook LIMIT ? OFFSET ?`)
+      .all(gid, ...list, limit, offset).map((r) => r.id);
+    const hc = kg.prepare(
+      `SELECT COUNT(*) n, COUNT(DISTINCT takhrij) t FROM hadiths
+       WHERE group_id = ? AND book_id IN (${ph})`).get(gid, ...list);
+    const books = kg.prepare(
+      `SELECT book_id bookId, COUNT(*) count FROM hadiths
+       WHERE group_id = ? AND book_id IN (${ph}) GROUP BY book_id ORDER BY count DESC`)
+      .all(gid, ...list).map((r) => ({ bookId: r.bookId, name: bookName.get(r.bookId), count: r.count }));
+    const sahabis = kg.prepare(
+      `SELECT r.id rawiId, MIN(r.nickname) name, COUNT(*) count
+       FROM sanads s
+       JOIN hadiths h ON h.id = s.hadith_id AND h.book_id IN (${ph})
+       JOIN sanad_rawis sr ON sr.sanad_id = s.id
+       JOIN rawis r ON r.id = sr.rawi_id AND r.rank = 'صحابي'
+       WHERE s.group_id = ? AND sr.pos = (SELECT MAX(pos) FROM sanad_rawis WHERE sanad_id = s.id)
+       GROUP BY r.id ORDER BY count DESC`).all(...list, gid);
+    const tabRows = kg.prepare(
+      `SELECT r.tabaka t, COUNT(DISTINCT sr.rawi_id) c
+       FROM sanads s
+       JOIN hadiths h ON h.id = s.hadith_id AND h.book_id IN (${ph})
+       JOIN sanad_rawis sr ON sr.sanad_id = s.id AND sr.pos > 0
+       JOIN rawis r ON r.id = sr.rawi_id
+       WHERE s.group_id = ? GROUP BY r.tabaka`).all(...list, gid);
+    const tabaqat = {};
+    for (const r of tabRows) tabaqat[r.t] = r.c;
+    return {
+      ...g, hadithCount: hc.n, takhrijCount: hc.t, books, sahabis, tabaqat,
+      scopedBooks: list.length,
+      narrations: (await byIds(ids)).map(trim),
+    };
   },
 
   // Isnad tree of a meaning group: all chains merged into one weighted DAG.
@@ -418,13 +688,30 @@ const routes = {
     const rows = q.groupChains.all(Number(id));
     if (!rows.length) return null;
     const sahabiFilter = Number(u.searchParams.get("sahabi") || 0);
+    const gradeFilter = u.searchParams.get("grade") || "";      // grade class key
+    const bookFilter = Number(u.searchParams.get("book") || 0);
+    const problemsOnly = u.searchParams.get("problems") === "1";
+    const bookScope = parseBookScope(u);
 
     const chains = new Map();
     for (const r of rows) {
-      const c = chains.get(r.sanad_id) ?? { grade: r.grade, rawis: [] };
+      if (bookScope && r.book_id != null && !bookScope.has(r.book_id)) continue;  // corpus scope
+      const c = chains.get(r.sanad_id)
+        ?? { grade: r.grade, bookId: r.book_id, rawis: [], problem: false };
       c.rawis.push(r);           // pos ascending: 0 = author … last = sahabi
+      if (isMudallisWeak(r)) c.problem = true;
       chains.set(r.sanad_id, c);
     }
+
+    // facet counts over the sahabi-filtered set (for the filter UI)
+    const gradeCounts = {}, bookCounts = {};
+    for (const c of chains.values()) {
+      if (sahabiFilter && c.rawis[c.rawis.length - 1].rawi_id !== sahabiFilter) continue;
+      const gk = gradeKey(c.grade);
+      gradeCounts[gk] = (gradeCounts[gk] ?? 0) + 1;
+      if (c.bookId) bookCounts[c.bookId] = (bookCounts[c.bookId] ?? 0) + 1;
+    }
+
     const PROPHET = 0;           // virtual root
     const nodes = new Map([[PROPHET, {
       rawiId: PROPHET, name: "النبي ﷺ", role: "prophet", count: 0, depthSum: 0,
@@ -435,6 +722,9 @@ const routes = {
       const rw = c.rawis;
       const last = rw[rw.length - 1];
       if (sahabiFilter && last.rawi_id !== sahabiFilter) continue;
+      if (gradeFilter && gradeKey(c.grade) !== gradeFilter) continue;
+      if (bookFilter && c.bookId !== bookFilter) continue;
+      if (problemsOnly && !c.problem) continue;
       used++;
       // transmission order: prophet → sahabi (last) → … → author (pos 0)
       const seq = [
@@ -485,12 +775,74 @@ const routes = {
     const sahabis = nodeList.filter((n) => n.role === "sahabi")
       .sort((a, b) => b.count - a.count)
       .map((n) => ({ rawiId: n.rawiId, name: n.name, count: n.count }));
+    const gradeLabels = { sahih: "صحيح", hasan: "حسن", daif: "ضعيف", mawdu: "موضوع/منكر", other: "غير محدد" };
+    const grades = Object.entries(gradeCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, count]) => ({ key: k, label: gradeLabels[k] ?? k, count }));
+    const books = Object.entries(bookCounts)
+      .map(([bid, count]) => ({ bookId: Number(bid), name: bookName.get(Number(bid)), count }))
+      .sort((a, b) => b.count - a.count).slice(0, 12);
     return {
       groupId: Number(id), chains: used, totalChains: chains.size,
       nodes: nodeList, edges: [...edges.values()],
       madar: madar ? { rawiId: madar.rawiId, name: madar.name, count: madar.middleCount } : null,
-      sahabis,
+      sahabis, grades, books,
+      filters: { sahabi: sahabiFilter || null, grade: gradeFilter || null,
+                 book: bookFilter || null, problems: problemsOnly },
     };
+  },
+
+  // matn texts of a meaning's narrations, for word-level variant comparison.
+  // Deduped by matn (representative kept), longest first, ≤ 24 variants.
+  "GET /api/group/:id/matns": async (u, id) => {
+    const scope = parseBookScope(u);
+    const list = scope ? [...scope] : null;
+    const rows = list
+      ? kg.prepare(`SELECT id FROM hadiths WHERE group_id = ? AND book_id IN (${list.map(() => "?").join(",")}) ORDER BY no_inbook`).all(Number(id), ...list)
+      : kg.prepare(`SELECT id FROM hadiths WHERE group_id = ? ORDER BY book_id, no_inbook LIMIT 400`).all(Number(id));
+    const docs = await byIds(rows.map((r) => r.id));
+    const seen = new Set(), out = [];
+    for (const h of docs) {
+      const matn = matnOf(h).trim();
+      if (!matn) continue;
+      const key = normalizeArabic(matn).replace(/\s+/g, " ");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ hadithId: h.hadithId, book: bookName.get(h.bookId), noInBook: h.noInBook,
+                 hukm: h.hukm, matn });
+    }
+    out.sort((a, b) => b.matn.length - a.matn.length);   // richest wording first (natural base)
+    return { groupId: Number(id), variants: out.slice(0, 24), total: out.length };
+  },
+
+  // narrations passing through one edge of the isnad graph (from → to in
+  // transmission order; from=0 is the Prophet ﷺ → its sahabi). Respects the
+  // same filters as /tree so the results are always a subset of what's drawn.
+  "GET /api/group/:id/edge": async (u, id) => {
+    const from = Number(u.searchParams.get("from"));
+    const to = Number(u.searchParams.get("to"));
+    if (!to) return { narrations: [] };
+    const f = {
+      sahabi: Number(u.searchParams.get("sahabi") || 0),
+      grade: u.searchParams.get("grade") || "",
+      book: Number(u.searchParams.get("book") || 0),
+      problems: u.searchParams.get("problems") === "1",
+      books: parseBookScope(u),
+    };
+    const chains = buildChains(q.groupChains.all(Number(id)));
+    const ids = new Set();
+    for (const c of chains.values()) {
+      if (!chainPasses(c, f)) continue;
+      // transmission order: [Prophet(0), sahabi(last pos)…author(pos 0)]
+      const seq = [0, ...c.rawis.map((r) => r.rawi_id).reverse()];
+      for (let i = 1; i < seq.length; i++)
+        if (seq[i - 1] === from && seq[i] === to) {
+          if (c.hadithId != null) ids.add(c.hadithId);
+          break;
+        }
+      if (ids.size >= 60) break;   // cap on DISTINCT narrations
+    }
+    return { narrations: (await byIds([...ids])).map(trim) };
   },
 
   "GET /api/rawi/:id": async (_u, id) => {
@@ -553,7 +905,7 @@ const routes = {
     if (!qs) return { query: qs, groups: [], hadithHits: [] };
     const nGroups = clamp(u.searchParams.get("groups"), 5, 20);
     const perGroup = clamp(u.searchParams.get("perGroup"), 3, 10);
-    return ragContext(qs, nGroups, perGroup);
+    return ragContext(qs, nGroups, perGroup, parseBookScope(u));
   },
 
   "GET /api/topics": async (u) => {
