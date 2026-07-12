@@ -44,7 +44,7 @@ export async function groupPage({ args: [id], params }) {
       <strong style="color:var(--ink-2)">كيف نلخّص؟</strong> يبدأ الرسم بعرضٍ مختصرٍ يُبرز الرواة الأكثر وروداً في الطرق
       (محور الإسناد)، وتُخفى الطرق النادرة؛ الرقم <b>+N</b> تحت اسم الراوي = عدد طرقه المخفية، اضغطه لتوسيعها،
       أو اضغط <b>«توسيع كل الأسانيد»</b> لإظهار كل الطرق دفعةً واحدة ثم <b>«العرض المختصر»</b> للعودة.
-      <br/>اسحب للتنقل · عجلة الفأرة للتكبير · ⛶ لملء الشاشة · اضغط راوياً لبطاقته ومرتين لصفحته · اضغط أي خط لعرض رواياته ونصوصها.
+      <br/>اسحب للتنقل · عجلة الفأرة للتكبير · زرّ ملء الشاشة في الشريط · اضغط راوياً لبطاقته ومرتين لصفحته · اضغط أي خط لعرض رواياته ونصوصها.
     </div>
   </div>
 
@@ -138,7 +138,7 @@ async function loadTree(patch = {}) {
     const head = document.getElementById("tree-head");
     if (head)
       head.innerHTML = (tree.madar
-        ? `<span class="badge grade-hasan">◈ مدار الحديث: ${esc(tree.madar.name)} — ${fmt(tree.madar.count)} طريقاً</span>` : "")
+        ? `<span class="badge grade-hasan">مدار الحديث: ${esc(tree.madar.name)} — ${fmt(tree.madar.count)} طريقاً</span>` : "")
         + `<span class="badge">${fmt(tree.chains)} إسناد${tree.chains !== tree.totalChains ? ` من ${fmt(tree.totalChains)}` : ""}</span>`
         + (tree.chains === 0 ? ` <span class="badge grade-daif">لا نتائج بهذه المرشِّحات</span>` : "");
 
@@ -190,7 +190,7 @@ function renderFilters() {
       + treeFull.books.slice(0, 6).map((b) =>
           chip(gs.book === b.bookId, `${esc(b.name)} (${fmt(b.count)})`, { book: b.bookId })).join("")
       + `</div>`);
-  parts.push(`<div class="grp">${chip(gs.problems, "المشاكل فقط ⚠", { problems: !gs.problems }, "warn")}</div>`);
+  parts.push(`<div class="grp">${chip(gs.problems, "المشاكل فقط", { problems: !gs.problems }, "warn")}</div>`);
   el.innerHTML = parts.join("");
   el.querySelectorAll("[data-on]").forEach((b) =>
     (b.onclick = () => loadTree(JSON.parse(b.dataset.on))));

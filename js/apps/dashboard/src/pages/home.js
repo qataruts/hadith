@@ -1,5 +1,6 @@
 import { api } from "../api.js";
 import { esc, fmt } from "../util.js";
+import { icon } from "../icons.js";
 import { statTiles, bars } from "../components/charts.js";
 
 export async function home() {
@@ -12,7 +13,7 @@ export async function home() {
   <div class="search-hero">
     <h1>الجامع</h1>
     <p>شبكة معرفية تربط ${fmt(counts.hadiths)} حديثاً بأسانيدها ورواتها ومعانيها — من ${fmt(counts.books)} كتاباً
-    ${scopedBooks ? `<br/><span class="badge grade-hasan" style="margin-top:6px">الأرقام ضمن ${fmt(scopedBooks)} كتاباً مختاراً — غيّرها من زرّ 📚 أعلى الصفحة</span>` : ""}</p>
+    ${scopedBooks ? `<br/><span class="badge grade-hasan" style="margin-top:6px">الأرقام ضمن ${fmt(scopedBooks)} كتاباً مختاراً — غيّرها من زرّ «نطاق الكتب» أعلى الصفحة</span>` : ""}</p>
     <form class="search-box" id="hero-search">
       <input name="q" placeholder="ابحث بنص الحديث أو بالمعنى…" autocomplete="off" autofocus />
       <button>بحث</button>
@@ -21,7 +22,7 @@ export async function home() {
       <button class="chip active" data-mode="semantic">بالمعنى</button>
       <button class="chip" data-mode="text">باللفظ</button>
       <button class="chip" data-mode="rawi">عن راوٍ</button>
-      <a class="chip" href="#/chat">💬 اسأل سؤالاً بحثياً</a>
+      <a class="chip" href="#/chat">${icon.chat({ size: 15 })} اسأل سؤالاً بحثياً</a>
     </div>
   </div>
 

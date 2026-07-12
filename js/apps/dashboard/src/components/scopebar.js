@@ -2,6 +2,7 @@
  * (search, meaning graphs, narrations) then works within the chosen books. */
 import { api } from "../api.js";
 import { esc, fmt } from "../util.js";
+import { icon } from "../icons.js";
 import { getScopeIds, setScope, hasScopeSet } from "./scope.js";
 
 let allBooks = null;
@@ -40,7 +41,7 @@ export async function openScopeModal() {
     <div class="modal scope-modal" role="dialog" aria-label="نطاق الكتب">
       <div class="spread" style="margin-bottom:4px">
         <h3 style="margin:0">نطاق الكتب</h3>
-        <button class="icon-btn" data-x>✕</button>
+        <button class="icon-btn" data-x aria-label="إغلاق">${icon.close()}</button>
       </div>
       <p class="muted" style="margin:0 0 12px">كل ما يعرضه التطبيق (بحث، شبكات الرواة، الروايات) يعمل ضمن الكتب المختارة فقط.</p>
       <div class="row" id="scope-presets" style="gap:6px;margin-bottom:10px">

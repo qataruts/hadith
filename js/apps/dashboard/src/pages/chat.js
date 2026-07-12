@@ -18,7 +18,7 @@ export async function chatPage() {
   <div class="chat-layout">
     <div class="card chat-main">
       <div class="chat-msgs" id="chat-msgs">
-        <div class="msg bot">السلام عليكم — اسألني عن أي حديث أو مسألة حديثية، وسأجيبك من قاعدة تضم ${fmt(715790)} حديثاً مع ذكر المصادر ودرجة كل حديث.${getScopeIds() ? `<br/><span class="badge grade-hasan" style="margin-top:6px">الأجوبة ضمن الكتب المختارة (${fmt(getScopeIds().length)}) — غيّرها من زرّ 📚</span>` : ""}
+        <div class="msg bot">السلام عليكم — اسألني عن أي حديث أو مسألة حديثية، وسأجيبك من قاعدة تضم ${fmt(715790)} حديثاً مع ذكر المصادر ودرجة كل حديث.${getScopeIds() ? `<br/><span class="badge grade-hasan" style="margin-top:6px">الأجوبة ضمن الكتب المختارة (${fmt(getScopeIds().length)}) — غيّرها من زرّ «نطاق الكتب»</span>` : ""}
 مثال: «ما صحة حديث إنما الأعمال بالنيات؟» أو «ما ورد في فضل صلة الرحم؟»</div>
       </div>
       <form class="search-box" id="chat-form" style="max-width:100%">

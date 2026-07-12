@@ -9,20 +9,20 @@
 
 :root {
   color-scheme: light;
-  --page: #f9f9f7;
-  --surface: #fcfcfb;
-  --surface-2: #f3f2ee;
-  --ink: #0b0b0b;
-  --ink-2: #52514e;
-  --ink-3: #6e6c66;          /* ≥4.5:1 on --surface (was #898781 @3.4:1) */
+  --page: #f7f4ee;            /* warm manuscript paper (مشكاة) */
+  --surface: #fdfbf6;
+  --surface-2: #f1ede3;
+  --ink: #241f18;             /* warm brown-black, not pure black */
+  --ink-2: #57503f;
+  --ink-3: #7a7157;          /* ≥4.5:1 on --surface */
   --critical-ink: #b32e2e;
-  --hairline: #e1e0d9;
-  --border: rgba(11, 11, 11, 0.1);
-  --accent: #0d5c50;          /* brand teal — UI only, never a chart series */
+  --hairline: #e5ddcc;
+  --border: rgba(36, 31, 24, 0.12);
+  --accent: #0b6e56;          /* emerald — UI only, never a chart series */
   --accent-ink: #ffffff;
-  --accent-soft: rgba(13, 92, 80, 0.08);
-  --gold: #9a6a1f;            /* sahabi / highlights */
-  --gold-soft: rgba(154, 106, 31, 0.1);
+  --accent-soft: rgba(11, 110, 86, 0.09);
+  --gold: #a97e2f;            /* illumination / sahabi / highlights */
+  --gold-soft: rgba(169, 126, 47, 0.12);
   --seq-1: #cde2fb; --seq-2: #9ec5f4; --seq-3: #6da7ec;
   --seq-4: #3987e5; --seq-5: #256abf; --seq-6: #184f95;
   --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
@@ -33,29 +33,30 @@
   --rk-sahabi: #0b6e3b; --rk-thiqa: #1f9d4a; --rk-saduq: #6bbf7f;
   --rk-majhul: #b58a2e; --rk-daif: #d1782e; --rk-matruk: #c0392b;
   --rk-unknown: #a3a29c;
-  --aya: #0d5c50;
-  --matn-bg: rgba(154, 106, 31, 0.07);
+  --aya: #0b6e56;
+  --matn-bg: rgba(169, 126, 47, 0.08);
   --shadow: 0 1px 2px rgba(11, 11, 11, 0.04), 0 4px 16px rgba(11, 11, 11, 0.05);
   --radius: 12px;
   --font-ui: "IBM Plex Sans Arabic", system-ui, sans-serif;
   --font-nass: "Amiri", "Scheherazade New", serif;
+  --font-head: "Amiri", "Scheherazade New", serif;   /* calligraphic headings */
 }
 [data-theme="dark"] {
   color-scheme: dark;
-  --page: #0d0d0d;
-  --surface: #1a1a19;
-  --surface-2: #232322;
-  --ink: #f4f4f2;
-  --ink-2: #c3c2b7;
-  --ink-3: #9d9b94;
+  --page: #12100c;            /* warm near-black (brown-tinted) */
+  --surface: #1c1913;
+  --surface-2: #26221a;
+  --ink: #f3efe4;
+  --ink-2: #c8c0ad;
+  --ink-3: #9d9585;
   --critical-ink: #ea7070;
-  --hairline: #2c2c2a;
-  --border: rgba(255, 255, 255, 0.1);
-  --accent: #35a08f;
-  --accent-ink: #08211d;
-  --accent-soft: rgba(53, 160, 143, 0.13);
+  --hairline: #322d22;
+  --border: rgba(243, 239, 228, 0.1);
+  --accent: #37b090;          /* emerald, lifted for dark */
+  --accent-ink: #071a14;
+  --accent-soft: rgba(55, 176, 144, 0.14);
   --gold: #d4a355;
-  --gold-soft: rgba(212, 163, 85, 0.12);
+  --gold-soft: rgba(212, 163, 85, 0.13);
   --seq-1: #104281; --seq-2: #1c5cab; --seq-3: #2a78d6;
   --seq-4: #3987e5; --seq-5: #6da7ec; --seq-6: #9ec5f4;
   --good-text: #0ca30c;
@@ -64,11 +65,14 @@
   --rk-sahabi: #24d383; --rk-thiqa: #46b45f; --rk-saduq: #8ed69b;
   --rk-majhul: #d0a94e; --rk-daif: #e2915a; --rk-matruk: #e5776b;
   --rk-unknown: #7c8794;
-  --matn-bg: rgba(212, 163, 85, 0.09);
+  --aya: #37b090;
+  --matn-bg: rgba(212, 163, 85, 0.1);
   --shadow: none;
 }
 
 * { box-sizing: border-box; }
+.ic { display: inline-block; vertical-align: -0.18em; flex: none; }
+.brand-mark { display: block; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 .isnad-tree a:focus-visible { outline: none; }
 .isnad-tree a:focus-visible rect { stroke: var(--accent); stroke-width: 2.5; }
@@ -79,7 +83,11 @@ body {
 }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
-h1, h2, h3 { line-height: 1.4; margin: 0 0 0.5em; }
+h1, h2, h3 {
+  font-family: var(--font-head); font-weight: 700;
+  line-height: 1.35; margin: 0 0 0.5em; letter-spacing: 0;
+}
+h1 { font-size: 1.9em; }
 ::selection { background: var(--accent-soft); }
 
 /* ── shell ── */
@@ -93,9 +101,10 @@ h1, h2, h3 { line-height: 1.4; margin: 0 0 0.5em; }
   max-width: 1200px; margin: 0 auto; padding: 0 20px;
   display: flex; align-items: center; gap: 24px; height: 58px;
 }
-.brand { font-weight: 700; font-size: 20px; color: var(--ink); display: flex; align-items: baseline; gap: 8px; }
+.brand { font-family: var(--font-head); font-weight: 700; font-size: 25px; color: var(--ink); display: flex; align-items: center; gap: 9px; line-height: 1; }
 .brand:hover { text-decoration: none; }
-.brand small { font-size: 11px; color: var(--ink-3); font-weight: 400; }
+.brand .brand-mark { flex: none; width: 30px; height: 30px; color: var(--accent); }
+.brand small { font-family: var(--font-ui); font-size: 11px; color: var(--ink-3); font-weight: 400; align-self: center; }
 .nav { display: flex; gap: 4px; flex: 1; }
 .nav a {
   padding: 6px 12px; border-radius: 8px; color: var(--ink-2); font-size: 14px;

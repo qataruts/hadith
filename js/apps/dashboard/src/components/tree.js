@@ -13,6 +13,7 @@
  * mountIsnadTree(container, tree, { budget, fetchRawi }) → { destroy }
  */
 import { esc, fmt, rankBadge, hijri, rankVar, edgeVar, isnadLegend, gradeBadge } from "../util.js";
+import { icon } from "../icons.js";
 
 const NODE_W = 150, NODE_H = 34, GAP_Y = 86, PAD = 30, MIN_GAP_X = 24;
 const EXPAND_STEP = 12;
@@ -103,8 +104,8 @@ export function mountIsnadTree(container, tree, { budget = 46, fetchRawi, onEdge
   container.innerHTML = `
     <div class="tree-toolbar">
       <button data-act="all" class="tree-all" title="عرض كل الأسانيد / العودة للمختصر">توسيع كل الأسانيد</button>
-      <button data-act="fs" title="ملء الشاشة">⛶</button>
-      <button data-act="fit" title="ملاءمة العرض">⌂</button>
+      <button data-act="fs" title="ملء الشاشة" aria-label="ملء الشاشة">${icon.expand({ size: 16 })}</button>
+      <button data-act="fit" title="ملاءمة العرض" aria-label="ملاءمة العرض">${icon.fit({ size: 16 })}</button>
       <button data-act="zin" title="تكبير">+</button>
       <button data-act="zout" title="تصغير">−</button>
       <span class="tree-note" id="tnote"></span>
@@ -117,7 +118,7 @@ export function mountIsnadTree(container, tree, { budget = 46, fetchRawi, onEdge
       <div class="rawi-pop" hidden></div>
     </div>`;
   const stage = container.querySelector(".tree-stage");
-  const svg = container.querySelector("svg");
+  const svg = container.querySelector("svg.isnad-tree");   // not a toolbar icon svg
   const gCam = svg.querySelector(".cam");
   const gEdges = svg.querySelector(".edges");
   const gNodes = svg.querySelector(".nodes");
@@ -194,7 +195,7 @@ export function mountIsnadTree(container, tree, { budget = 46, fetchRawi, onEdge
           rx="9" fill="${fill}" stroke="${stroke}" stroke-width="${isMadar ? 2.6 : 1.7}" ${dash}/>
         <text x="${p.x}" y="${p.y + 1}" text-anchor="middle" dominant-baseline="middle"
           fill="${ink}" font-size="12.5" font-weight="${n.role === "sahabi" || isMadar ? 600 : 400}">${esc(label)}</text>
-        ${isMadar ? `<text x="${p.x}" y="${p.y - NODE_H / 2 - 6}" text-anchor="middle" fill="var(--accent)" font-size="10.5" font-weight="700">◈ مدار الحديث</text>` : ""}
+        ${isMadar ? `<text x="${p.x}" y="${p.y - NODE_H / 2 - 6}" text-anchor="middle" fill="var(--accent)" font-size="10.5" font-weight="700">مدار الحديث</text>` : ""}
         ${hid ? `<g class="expand" data-expand="${n.rawiId}"><rect x="${p.x - 22}" y="${p.y + NODE_H / 2 - 3}" width="44" height="17" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="0.8"/>
           <text x="${p.x}" y="${p.y + NODE_H / 2 + 6}" text-anchor="middle" dominant-baseline="middle" fill="var(--accent)" font-size="10.5" font-weight="600">+${fmt(hid)}</text></g>` : ""}
       </g>`;

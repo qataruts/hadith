@@ -1,6 +1,7 @@
 /** الجامع — SPA shell + hash router. */
 import "./styles.css";
 import { esc } from "./util.js";
+import { logoMark, icon } from "./icons.js";
 import { initGlossary } from "./components/glossary.js";
 import { openScopeModal, scopeLabel, ensureDefaultScope } from "./components/scopebar.js";
 import { home } from "./pages/home.js";
@@ -48,12 +49,12 @@ function shell(content) {
   const cur = location.hash.replace(/\?.*/, "") || "#/";
   return `
   <header class="topbar"><div class="topbar-in">
-    <a class="brand" href="#/">الجامع <small>الشبكة المعرفية للحديث الشريف</small></a>
+    <a class="brand" href="#/">${logoMark(30)}<span>الجامع</span> <small>الشبكة المعرفية للحديث الشريف</small></a>
     <nav class="nav">${NAV.map(([h, t]) =>
       `<a href="${h}" class="${(h === "#/" ? cur === "#/" : cur.startsWith(h)) ? "active" : ""}">${t}</a>`).join("")}
     </nav>
-    <button class="scope-btn" id="scope-btn" title="اختيار نطاق الكتب التي يعمل ضمنها التطبيق">📚 <span id="scope-lbl"></span></button>
-    <button class="icon-btn" id="theme-toggle" title="تبديل الوضع الليلي" aria-label="تبديل الوضع الليلي">◐</button>
+    <button class="scope-btn" id="scope-btn" title="اختيار نطاق الكتب التي يعمل ضمنها التطبيق">${icon.scope()} <span id="scope-lbl"></span></button>
+    <button class="icon-btn" id="theme-toggle" title="تبديل الوضع الليلي" aria-label="تبديل الوضع الليلي">${icon.moon()}</button>
   </div></header>
   <main class="wrap" id="page">${content}</main>`;
 }
@@ -101,10 +102,15 @@ function bindShell() {
     document.getElementById("scope-lbl").textContent = scopeLabel();
     sb.onclick = openScopeModal;
   }
-  document.getElementById("theme-toggle").onclick = () => {
+  const tt = document.getElementById("theme-toggle");
+  const paintTheme = () =>
+    (tt.innerHTML = document.documentElement.dataset.theme === "dark" ? icon.sun() : icon.moon());
+  paintTheme();
+  tt.onclick = () => {
     const cur = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
     document.documentElement.dataset.theme = cur;
     localStorage.setItem("theme", cur);
+    paintTheme();
   };
 }
 

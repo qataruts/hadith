@@ -32,6 +32,11 @@ installers + public Docker image).
   self-contained SVG (no tiles) placing cities by lat/lng, sized by narrator
   count, with weighted directional flow arcs from death_place/iqama.
 
+- **v1.4.0** — visual identity overhaul: warm «مشكاة» manuscript palette (paper
+  #f7f4ee / brown-ink #241f18 / emerald #0b6e56 / gold #a97e2f), Amiri for ALL
+  headings + brand, a real logo mark (pointed mihrab arch enclosing converging
+  isnad threads — الجامع = mosque + gathering of chains), SVG favicon + OG tags,
+  and a consistent inline-SVG icon set replacing every emoji/glyph in the UI.
 - **v1.3.0** — «الأفراد والغرائب» (network-wide tafarrud: singular-chain meanings
   with their weakest narrator, filterable by grade) · «احكم على السند» (grade-the-
   chain quiz) · home-page performance fix (scoped stats cached + warmed at
