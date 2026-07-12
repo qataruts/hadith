@@ -1,10 +1,11 @@
 /** Meaning-group page — the heart of the app: everything about one meaning. */
 import { api } from "../api.js";
-import { esc, fmt, gradeBadge } from "../util.js";
+import { esc, fmt, gradeBadge, onVisible } from "../util.js";
 import { tabaqatChart, bars } from "../components/charts.js";
 import { hadithCard } from "../components/cards.js";
 import { mountIsnadTree } from "../components/tree.js";
 import { renderMatnDiff } from "../components/matndiff.js";
+import { renderGeoMap } from "../components/geomap.js";
 
 export async function groupPage({ args: [id], params }) {
   const offset = Number(params.get("offset") ?? 0);
@@ -67,11 +68,14 @@ export async function groupPage({ args: [id], params }) {
       label: b.name, value: b.count, href: `#/book/${b.bookId}` })), { maxBars: 12 })}
   </div>
 
+  <div class="card no-print" id="geo-host" data-group="${g.groupId}">
+    <h3 style="margin:0">مسار الانتقال الجغرافي</h3>
+    <p class="muted" style="margin:6px 0 0">كيف انتقل هذا المعنى بين الأمصار على ألسنة الرواة — من مواطنهم ووفياتهم.</p>
+    <div id="geo-body" style="margin-top:12px"></div>
+  </div>
+
   <div class="card no-print" id="matndiff-host" data-group="${g.groupId}">
-    <div class="spread">
-      <h3 style="margin:0">مقارنة الألفاظ — الزيادات والاختلاف بين الطرق</h3>
-      <button class="chip" id="matndiff-open">إظهار المقارنة</button>
-    </div>
+    <h3 style="margin:0">مقارنة الألفاظ — الزيادات والاختلاف بين الطرق</h3>
     <p class="muted" style="margin:6px 0 0">محاذاة ألفاظ الروايات لإبراز الزيادات (ziyādāt) ومواضع الاختلاف بينها.</p>
     <div id="matndiff-body" style="margin-top:12px"></div>
   </div>
@@ -201,6 +205,18 @@ document.addEventListener("page:rendered", () => {
     loadTree();
   }
 
+  const geo = document.getElementById("geo-host");
+  if (geo && !geo.dataset.bound) {
+    geo.dataset.bound = "1";
+    const gid = Number(geo.dataset.group);
+    const body = document.getElementById("geo-body");
+    onVisible(geo, async () => {
+      body.innerHTML = `<div class="skeleton" style="height:200px"></div>`;
+      try { body.innerHTML = renderGeoMap(await api.groupGeo(gid)); }
+      catch { body.innerHTML = `<div class="muted">تعذّرت الخريطة</div>`; }
+    });
+  }
+
   const md = document.getElementById("matndiff-host");
   if (md && !md.dataset.bound) {
     md.dataset.bound = "1";
@@ -208,12 +224,11 @@ document.addEventListener("page:rendered", () => {
     const body = document.getElementById("matndiff-body");
     let data = null;
     const paint = (baseIdx) => { body.innerHTML = renderMatnDiff(data, baseIdx); };
-    document.getElementById("matndiff-open").onclick = async (e) => {
-      e.target.remove();
+    onVisible(md, async () => {
       body.innerHTML = `<div class="skeleton" style="height:140px"></div>`;
       try { data = await api.groupMatns(gid); paint(0); }
       catch { body.innerHTML = `<div class="muted">تعذّرت المقارنة</div>`; }
-    };
+    });
     md.addEventListener("change", (e) => {
       if (e.target.id === "diff-base" && data) paint(Number(e.target.value));
     });

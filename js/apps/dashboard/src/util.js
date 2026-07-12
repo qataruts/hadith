@@ -77,6 +77,16 @@ export const debounce = (fn, ms) => {
   return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
 };
 
+/** Call cb once, when el first scrolls near the viewport (lazy section load). */
+export function onVisible(el, cb, rootMargin = "300px") {
+  if (!el) return;
+  if (!("IntersectionObserver" in window)) { cb(); return; }
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) if (e.isIntersecting) { io.disconnect(); cb(); return; }
+  }, { rootMargin });
+  io.observe(el);
+}
+
 /** Tiny hijri-year formatter for death years. */
 export const hijri = (y, raw) => (y ? `${fmt(y)}هـ` : raw ? `${esc(raw)}هـ` : "");
 

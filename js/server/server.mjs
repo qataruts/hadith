@@ -95,6 +95,20 @@ const q = {
      JOIN sanad_rawis sr ON sr.sanad_id = s.id
      JOIN rawis r ON r.id = sr.rawi_id
      WHERE s.hadith_id = ? ORDER BY s.id, sr.pos`),
+  geoRows: kg.prepare(
+    `SELECT s.id sanad_id, sr.pos, r.death_place, r.iqama, h.book_id
+     FROM sanads s
+     JOIN sanad_rawis sr ON sr.sanad_id = s.id
+     JOIN rawis r ON r.id = sr.rawi_id
+     JOIN hadiths h ON h.id = s.hadith_id
+     WHERE s.group_id = ? ORDER BY s.id, sr.pos`),
+  contactRows: kg.prepare(
+    `SELECT s.id sanad_id, sr.pos, r.id rawi_id, r.nickname, r.rank,
+            r.tabaka, r.death_year, r.death_year_raw, r.birth_year
+     FROM sanads s
+     JOIN sanad_rawis sr ON sr.sanad_id = s.id
+     JOIN rawis r ON r.id = sr.rawi_id
+     WHERE s.hadith_id = ? ORDER BY s.id, sr.pos`),
 };
 
 /** Clamp a query param to [0, max]; NaN/negative/garbage → the default. */
@@ -570,6 +584,57 @@ const routes = {
     };
   },
 
+  // فحص الاتصال الزمني — audit each adjacent link of the chain for a hidden
+  // break: a large generation (tabaqa) jump means narrators were likely dropped;
+  // a death-year gap corroborates. Every narrator has a tabaqa, so coverage is full.
+  "GET /api/hadith/:id/contact": async (_u, id) => {
+    const rows = q.contactRows.all(Number(id));
+    if (!rows.length) return { sanads: [] };
+    const bySanad = new Map();
+    for (const r of rows) (bySanad.get(r.sanad_id) ?? bySanad.set(r.sanad_id, []).get(r.sanad_id)).push(r);
+
+    const sanads = [...bySanad.values()].map((chain) => {
+      const seq = [...chain].reverse();          // transmission order, [0] = Companion
+      const links = [];
+      for (let i = 0; i < seq.length - 1; i++) {
+        const U = seq[i], L = seq[i + 1];        // L narrates from U (U closer to the Prophet)
+        const tGap = (L.tabaka ?? 0) - (U.tabaka ?? 0);
+        const dGap = (U.death_year && L.death_year) ? L.death_year - U.death_year : null;
+        // Conservative: only student-born-after-teacher-died (or an explicit
+        // marker) is a CONFIRMED break. Large tabaqa jumps are advisory only —
+        // long-lived narrators legitimately span several generations (e.g. Mālik
+        // ← Nāfiʿ spans 4), so a gap ≤4 is never flagged. Never mislabel a sound
+        // narration as broken.
+        let verdict = "ok", note = "";
+        if (isBreakName(U.nickname) || isBreakName(L.nickname)) {
+          verdict = "break"; note = "موضع انقطاع مُثبَت في المصدر";
+        } else if (L.birth_year && U.death_year && L.birth_year > U.death_year) {
+          verdict = "break"; note = `وُلد التلميذ سنة ${L.birth_year}هـ بعد وفاة شيخه سنة ${U.death_year}هـ — انقطاع مؤكَّد`;
+        } else if (tGap >= 6) {
+          verdict = "suspect"; note = `قفزة ${tGap} طبقات — يُنظر في احتمال سقوط راوٍ (ليس حكماً)`;
+        } else if (dGap != null && dGap > 150) {
+          verdict = "suspect"; note = `تباعد وفاة كبير جداً (${dGap} سنة) — يُتحقَّق من السماع`;
+        } else if (tGap === 5 || (dGap != null && dGap > 110)) {
+          verdict = "note"; note = tGap === 5 ? "قفزة ٥ طبقات — يُستأنس بالتحقق" : `فارق وفاة ملحوظ (${dGap} سنة)`;
+        } else if (tGap <= -2) {
+          verdict = "note"; note = "الطبقة معكوسة — الراوي أقدم من شيخه";
+        }
+        links.push({
+          upper: { rawiId: U.rawi_id, name: U.nickname, tabaka: U.tabaka, death: U.death_year, deathRaw: U.death_year_raw },
+          lower: { rawiId: L.rawi_id, name: L.nickname, tabaka: L.tabaka, death: L.death_year, deathRaw: L.death_year_raw },
+          tGap, dGap, verdict, note,
+        });
+      }
+      const flags = links.filter((l) => l.verdict === "suspect" || l.verdict === "break").length;
+      return {
+        sanadId: chain[0].sanad_id, links, flags,
+        timeline: seq.map((x) => ({ rawiId: x.rawi_id, name: x.nickname, tabaka: x.tabaka,
+          death: x.death_year, deathRaw: x.death_year_raw })),
+      };
+    });
+    return { sanads };
+  },
+
   // «لماذا هذا الحكم؟» — per-sanad plain-language analysis of chain health
   "GET /api/hadith/:id/why": async (_u, id) => {
     const rows = q.whyRows.all(Number(id));
@@ -789,6 +854,45 @@ const routes = {
       sahabis, grades, books,
       filters: { sahabi: sahabiFilter || null, grade: gradeFilter || null,
                  book: bookFilter || null, problems: problemsOnly },
+    };
+  },
+
+  // geographic transmission of a meaning: city→city hops aggregated from the
+  // narrators' death_place (fallback: first iqama city) along every chain.
+  "GET /api/group/:id/geo": async (u, id) => {
+    const scope = parseBookScope(u);
+    const bySanad = new Map();
+    for (const r of q.geoRows.all(Number(id))) {
+      if (scope && r.book_id != null && !scope.has(r.book_id)) continue;
+      (bySanad.get(r.sanad_id) ?? bySanad.set(r.sanad_id, []).get(r.sanad_id)).push(r);
+    }
+    const cityOf = (r) =>
+      (r.death_place && r.death_place.trim())
+      || (r.iqama ? r.iqama.split(/[،,]/)[0].trim() : "") || "";
+    const cityCounts = {}, flows = new Map();
+    let chainsUsed = 0;
+    for (const chain of bySanad.values()) {
+      chainsUsed++;
+      const seq = [...chain].reverse();     // transmission order (Companion → author)
+      let prev = null;
+      for (const r of seq) {
+        const c = cityOf(r);
+        if (!c) continue;
+        cityCounts[c] = (cityCounts[c] ?? 0) + 1;
+        if (prev && prev !== c) {           // the hadith moved prev → c
+          const k = `${prev}>${c}`;
+          flows.set(k, (flows.get(k) ?? 0) + 1);
+        }
+        prev = c;
+      }
+    }
+    return {
+      groupId: Number(id), chains: chainsUsed,
+      cityCounts,
+      flows: [...flows].map(([k, count]) => {
+        const [from, to] = k.split(">");
+        return { from, to, count };
+      }).sort((a, b) => b.count - a.count),
     };
   },
 

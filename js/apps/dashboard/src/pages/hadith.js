@@ -1,10 +1,11 @@
 import { api } from "../api.js";
-import { esc, fmt, gradeBadge, stripTashkeel, isnadLegend } from "../util.js";
+import { esc, fmt, gradeBadge, stripTashkeel, isnadLegend, onVisible } from "../util.js";
 import { renderNass } from "../components/nass.js";
 import { renderChain } from "../components/chain.js";
 import { mountRawiPopup } from "../components/rawipop.js";
 import { renderWhy } from "../components/why.js";
 import { renderItibar } from "../components/itibar.js";
+import { renderContact } from "../components/contact.js";
 
 export async function hadithPage({ args: [id], render }) {
   const h = await api.hadith(id);
@@ -62,12 +63,15 @@ export async function hadithPage({ args: [id], render }) {
   </div>` : ""}
 
   ${h.groupId ? `<div class="card no-print" id="itibar-host" data-hid="${h.hadithId}">
-    <div class="spread">
-      <h3 style="margin:0">الاعتبار — المتابعات والشواهد</h3>
-      <button class="chip" id="itibar-open">إجراء الاعتبار</button>
-    </div>
+    <h3 style="margin:0">الاعتبار — المتابعات والشواهد</h3>
     <p class="muted" style="margin:6px 0 0">جمعُ طرق الحديث لمعرفة هل تُوبِع راويه أو شُهد لحديثه — وهو أصل التقوية بكثرة الطرق.</p>
     <div id="itibar-body" style="margin-top:12px"></div>
+  </div>` : ""}
+
+  ${(h.sanads ?? []).length ? `<div class="card no-print" id="contact-host" data-hid="${h.hadithId}">
+    <h3 style="margin:0">فحص الاتصال الزمني</h3>
+    <p class="muted" style="margin:6px 0 0">مقارنة طبقات الرواة المتجاورين ووفياتهم لكشف الانقطاع الخفيّ (قرينة لا حُكم).</p>
+    <div id="contact-body" style="margin-top:12px"></div>
   </div>` : ""}
 
   ${book ? `<div class="card muted">
@@ -116,10 +120,22 @@ document.addEventListener("page:rendered", () => {
         if (my === reqSeq) body.innerHTML = renderItibar(d);
       } catch { if (my === reqSeq) body.innerHTML = `<div class="muted">تعذّر إجراء الاعتبار</div>`; }
     };
-    document.getElementById("itibar-open").onclick = (e) => { e.target.remove(); run(); };
+    onVisible(itHost, () => run());
     itHost.addEventListener("click", (e) => {
       const chip = e.target.closest(".itibar-rawi");
       if (chip) { e.preventDefault(); run(Number(chip.dataset.rawi)); }
+    });
+  }
+
+  const cHost = document.getElementById("contact-host");
+  if (cHost && !cHost.dataset.bound) {
+    cHost.dataset.bound = "1";
+    const hid = Number(cHost.dataset.hid);
+    const body = document.getElementById("contact-body");
+    onVisible(cHost, async () => {
+      body.innerHTML = `<div class="skeleton" style="height:120px"></div>`;
+      try { body.innerHTML = renderContact(await api.hadithContact(hid)); }
+      catch { body.innerHTML = `<div class="muted">تعذّر الفحص</div>`; }
     });
   }
 

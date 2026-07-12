@@ -25,6 +25,16 @@ installers + public Docker image).
   Companion). Verified classically correct on «إنما الأعمال بالنيات» (focus the
   madār يحيى → 11 متابعات تامة at his level).
 
+- **Contact auditor** ✓ — «فحص الاتصال الزمني» on hadith pages: checks each
+  isnad link's tabaqa/death-year for hidden breaks. Conservative (Mālik←Nāfiʿ
+  stays clean); only born-after-teacher-died or explicit markers = confirmed.
+- **Geo transmission map** ✓ — «مسار الانتقال الجغرافي» on meaning pages: a
+  self-contained SVG (no tiles) placing cities by lat/lng, sized by narrator
+  count, with weighted directional flow arcs from death_place/iqama.
+
+## v1.2 candidate (local, unreleased since v1.1.0)
+- Contact auditor + geo map are built and local — bundle into v1.2.0 when ready.
+
 ## Next up
 - Reprioritize with owner. Candidates below (v1.1 polish + v2 features).
 

@@ -245,6 +245,34 @@ hr.hair { border: 0; border-top: 1px solid var(--hairline); margin: 16px 0; }
 .why-list { margin: 4px 0 0; padding-inline-start: 20px; line-height: 1.9; }
 .why-list li { margin-bottom: 3px; }
 
+/* ── مسار الانتقال الجغرافي (geo map) ── */
+.geo-wrap {
+  border: 1px solid var(--hairline); border-radius: var(--radius); overflow: auto;
+  background:
+    radial-gradient(circle, color-mix(in srgb, var(--ink) 5%, transparent) 1px, transparent 1px)
+    0 0 / 26px 26px, var(--surface);
+}
+.geo-svg { width: 100%; min-width: 620px; height: auto; display: block; }
+.geo-city text { paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
+
+/* ── فحص الاتصال الزمني (contact audit) ── */
+.contact-sanad { margin-bottom: 16px; }
+.c-flow { display: flex; flex-direction: column; }
+.c-node { padding: 5px 0; }
+.c-node a { font-weight: 500; color: var(--ink); }
+.c-node a:hover { color: var(--accent); }
+.c-node .c-meta { color: var(--ink-3); font-size: 12px; margin-inline-start: 8px; }
+.c-link {
+  display: flex; align-items: center; gap: 7px; font-size: 12.5px;
+  padding: 2px 0 2px 4px; margin-inline-start: 6px;
+  border-inline-start: 2px solid var(--hairline);
+}
+.c-link .c-ic { width: 16px; text-align: center; font-weight: 700; }
+.c-link.c-ok { color: var(--ink-3); border-color: var(--hairline); }
+.c-link.c-note { color: color-mix(in srgb, var(--warning) 70%, var(--ink)); border-color: var(--warning); }
+.c-link.c-suspect { color: color-mix(in srgb, var(--serious) 75%, var(--ink)); border-color: var(--serious); font-weight: 500; }
+.c-link.c-break { color: var(--critical); border-color: var(--critical); font-weight: 600; }
+
 /* ── مقارنة الألفاظ (matn diff) ── */
 .d-list { display: flex; flex-direction: column; gap: 10px; }
 .d-row { border: 1px solid var(--hairline); border-radius: 10px; padding: 10px 12px; }
