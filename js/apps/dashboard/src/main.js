@@ -79,7 +79,8 @@ async function route() {
       const html = await page({ args: m.slice(1), params, render: (h) => partial(token, h) });
       if (token !== renderToken) return;
       if (html != null) document.getElementById("page").innerHTML = html;
-      window.scrollTo({ top: 0, behavior: "instant" });
+      const y = Number(sessionStorage.getItem("sc:" + (location.hash || "#/")) || 0);
+      window.scrollTo({ top: y, behavior: "instant" });   // restore on back-nav, else top
       document.dispatchEvent(new CustomEvent("page:rendered", { detail: { path } }));
     } catch (e) {
       console.error(e);
@@ -125,5 +126,9 @@ document.documentElement.dataset.theme =
 initGlossary();
 ensureDefaultScope();                    // first-ever load → default to top-30 books
 addEventListener("scope:change", route); // re-render the current view on scope change
-addEventListener("hashchange", route);
+addEventListener("hashchange", (e) => {   // save the leaving page's scroll, then route
+  const old = "#" + (e.oldURL.split("#")[1] ?? "/");
+  try { sessionStorage.setItem("sc:" + old, String(window.scrollY)); } catch { /* private mode */ }
+  route();
+});
 route();

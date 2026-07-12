@@ -244,6 +244,22 @@ function parseBookScope(u) {
   return s.size ? s : null;
 }
 
+// Normalized rawi search index — built once, lazily. Raw names keep hamza/alef
+// variants, so a `contains` on the stored text misses normalized queries; a small
+// in-memory normalized index fixes it with no DB change (49.8k rawis, ~2 MB).
+let _rawiIndex = null;
+function rawiIndex() {
+  if (_rawiIndex) return _rawiIndex;
+  _rawiIndex = kg.prepare(
+    `SELECT id, nickname, name, rank, tabaka, riwaya_qty, death_year FROM rawis`).all()
+    .map((r) => ({
+      rawiId: r.id, nickname: r.nickname, rank: r.rank, tabaka: r.tabaka,
+      chainCount: r.riwaya_qty ?? 0, deathYear: r.death_year,
+      norm: normalizeArabic(`${r.nickname ?? ""} ${r.name ?? ""}`).replace(/\s+/g, " "),
+    }));
+  return _rawiIndex;
+}
+
 // Scoped stats are expensive (a distinct-narrator triple-join runs ~1.5s over a
 // 30-book scope) but the corpus is read-only, so a given book-set always yields
 // the same answer. Cache by the normalized book-set; the default scope is warmed
@@ -496,18 +512,16 @@ const routes = {
   },
 
   "GET /api/search/rawis": async (u) => {
-    const qs = u.searchParams.get("q") ?? "";
+    const qs = normalizeArabic(u.searchParams.get("q") ?? "").replace(/\s+/g, " ").trim();
     const limit = clamp(u.searchParams.get("limit"), 20, 100);
     if (!qs) return { hits: [] };
-    const hits = await rawis.findMany({
-      where: { OR: [{ name: { contains: qs } }, { nickname: { contains: qs } }] },
-      orderBy: { chainCount: "desc" },
-      take: limit,
-    });
-    return { hits: hits.map((r) => ({
-      rawiId: r.rawiId, nickname: r.nickname, rank: r.rank, tabaka: r.tabaka,
-      chainCount: r.chainCount, deathYear: r.deathYear ?? r.deathYearRaw,
-    })) };
+    // normalized in-memory index → matches regardless of hamza/alef/ya/ta-marbuta
+    const hits = rawiIndex().filter((r) => r.norm.includes(qs))
+      .sort((a, b) => (b.chainCount ?? 0) - (a.chainCount ?? 0))
+      .slice(0, limit)
+      .map((r) => ({ rawiId: r.rawiId, nickname: r.nickname, rank: r.rank, tabaka: r.tabaka,
+        chainCount: r.chainCount, deathYear: r.deathYear }));
+    return { hits };
   },
 
   "GET /api/hadith/:id": async (_u, id) =>

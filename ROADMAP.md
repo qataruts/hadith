@@ -32,6 +32,11 @@ installers + public Docker image).
   self-contained SVG (no tiles) placing cities by lat/lng, sized by narrator
   count, with weighted directional flow arcs from death_place/iqama.
 
+- **v1.6.1** — polish: **normalized rawi search** (a lazy in-memory normalized
+  index — «احمد»/«ابو هريره»/«يحيي» now match أحمد/أبو هريرة/يحيى — with no DB
+  change or HF re-upload); **scroll-position restoration** on back-navigation
+  (sessionStorage per hash). (Tree sink-tiering nuance deferred — low value,
+  layout risk.)
 - **v1.6.0** — **تحليل الإسناد والمتن (ICMA)** at `#/icma/:groupId`: correlates matn
   wording with isnad topology. Clusters routes by their exact (normalized) taraf,
   and for each wording carried by ≥2 routes finds the deepest narrator common to
