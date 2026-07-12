@@ -16,6 +16,7 @@ import { tafarrud } from "./pages/tafarrud.js";
 import { quiz } from "./pages/quiz.js";
 import { board } from "./pages/board.js";
 import { icma } from "./pages/icma.js";
+import { conflicts } from "./pages/conflicts.js";
 import { chatPage } from "./pages/chat.js";
 
 const routes = [
@@ -32,6 +33,7 @@ const routes = [
   [/^\/books/, booksPage, "الكتب"],
   [/^\/topics(?:\/(\d+))?/, topicsPage, "المواضيع"],
   [/^\/tafarrud/, tafarrud, "الأفراد والغرائب"],
+  [/^\/conflicts/, conflicts, "تعارض الأحكام"],
   [/^\/quiz/, quiz, "احكم على السند"],
   [/^\/chat/, chatPage, "المحادثة البحثية"],
 ];
@@ -41,6 +43,7 @@ const NAV = [
   ["#/search", "البحث"],
   ["#/topics", "المواضيع"],
   ["#/tafarrud", "الأفراد والغرائب"],
+  ["#/conflicts", "تعارض الأحكام"],
   ["#/quiz", "احكم على السند"],
   ["#/books", "الكتب"],
   ["#/alems", "النقّاد"],

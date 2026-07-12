@@ -32,6 +32,14 @@ installers + public Docker image).
   self-contained SVG (no tiles) placing cities by lat/lng, sized by narrator
   count, with weighted directional flow arcs from death_place/iqama.
 
+- **v1.7.0** — **تعارض الأحكام بين الطرق** at `#/conflicts` (swarm rec #1): a
+  browsable, severity-sorted list of the 29,164 hadith whose isnads are graded
+  differently (a matn sound from one route, weak from another) — the core علل
+  teaching case. Severity = spread on the 0–5 grade scale (`sanads.matn_no`);
+  defaults to gap≥2 to skip the routine one-degree cases (85 are the starkest
+  صحيح↔موضوع). Scope-aware, framed as teaching not indictment. Backed by a lazy
+  in-memory conflict index (warmed at startup) so browsing is instant. This is
+  also the aggregation Nibras Phase 3 will consume.
 - **v1.6.2** — the book scope now governs the WHOLE app consistently: search
   (text/group/semantic — with a candidate-pool fix so a narrow scope's matches
   aren't lost below the global top-N), the books page, rawi profiles (scoped

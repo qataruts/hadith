@@ -44,6 +44,7 @@ export const api = {
   books: () => get("/books"),
   book: (id, limit = 30, offset = 0) => get(`/book/${id}`, { limit, offset }),
   tafarrud: (grade, offset = 0) => get("/tafarrud", { grade, offset, limit: 40 }),
+  conflicts: (minGap = 2, offset = 0) => get("/conflicts", { minGap, offset, limit: 40 }),
   quiz: () => get("/quiz"),
   topics: (parent) => get("/topics", parent ? { parent } : {}),
   topic: (id) => get(`/topic/${id}`),

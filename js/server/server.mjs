@@ -252,6 +252,20 @@ function bookIn(scope, col = "book_id") {
   return { clause: ` AND ${col} IN (${ids.map(() => "?").join(",")})`, params: ids };
 }
 
+// Grade-conflict index — every hadith whose sanads disagree on the grade, with
+// its best/worst level and book, sorted by severity. Built once (one 577k-sanad
+// scan, ~1.5s) then paginated/filtered in memory so browsing is instant.
+let _conflictIdx = null;
+function conflictIndex() {
+  if (_conflictIdx) return _conflictIdx;
+  _conflictIdx = kg.prepare(
+    `SELECT s.hadith_id hid, COUNT(*) n, MIN(s.matn_no) best, MAX(s.matn_no) worst, h.book_id bookId
+     FROM sanads s JOIN hadiths h ON h.id = s.hadith_id
+     GROUP BY s.hadith_id HAVING COUNT(*) > 1 AND MAX(s.matn_no) > MIN(s.matn_no)`).all()
+    .sort((a, b) => (b.worst - b.best) - (a.worst - a.best) || b.n - a.n);
+  return _conflictIdx;
+}
+
 // Normalized rawi search index — built once, lazily. Raw names keep hamza/alef
 // variants, so a `contains` on the stored text misses normalized queries; a small
 // in-memory normalized index fixes it with no DB change (49.8k rawis, ~2 MB).
@@ -1346,6 +1360,43 @@ const routes = {
     };
   },
 
+  // تعارض الأحكام بين الطرق — hadith whose isnads are graded differently. A matn
+  // can be sound from one route and weak from another; this is a teaching list in
+  // علم العلل, NOT a claim the hadith is contradictory or untrustworthy. Severity
+  // = the spread on the 0–5 grade scale (0 صحيح … 5 موضوع) across a hadith's
+  // sanads. Defaults to gap≥2 so the routine one-degree cases don't dominate.
+  "GET /api/conflicts": async (u) => {
+    const minGap = clamp(u.searchParams.get("minGap"), 2, 5);
+    const limit = clamp(u.searchParams.get("limit"), 30, 100);
+    const offset = clamp(u.searchParams.get("offset"), 0, 100000000);
+    const scope = parseBookScope(u);
+    let all = conflictIndex().filter((r) => (r.worst - r.best) >= minGap);
+    if (scope) all = all.filter((r) => scope.has(r.bookId));
+    const total = all.length;
+    const per = all.slice(offset, offset + limit);
+    if (!per.length) return { conflicts: [], total, minGap };
+    const ids = per.map((r) => r.hid);
+    const ph = ids.map(() => "?").join(",");
+    const dist = new Map();
+    for (const r of kg.prepare(
+      `SELECT hadith_id hid, matn_no lv, COUNT(*) c FROM sanads
+       WHERE hadith_id IN (${ph}) GROUP BY hadith_id, matn_no`).all(...ids))
+      (dist.get(r.hid) ?? dist.set(r.hid, []).get(r.hid)).push({ lv: r.lv, c: r.c });
+    const meta = new Map();
+    for (const r of kg.prepare(
+      `SELECT id, taraf_nass taraf, book_id, no_inbook FROM hadiths WHERE id IN (${ph})`).all(...ids))
+      meta.set(r.id, r);
+    const conflicts = per.map((r) => {
+      const m = meta.get(r.hid) ?? {};
+      return {
+        hadithId: r.hid, sanads: r.n, gap: r.worst - r.best, best: r.best, worst: r.worst,
+        taraf: m.taraf, book: bookName.get(m.book_id), noInBook: m.no_inbook,
+        dist: (dist.get(r.hid) ?? []).sort((a, b) => a.lv - b.lv),
+      };
+    });
+    return { conflicts, total, minGap };
+  },
+
   // الأفراد والغرائب — meanings that exist in a SINGLE chain (فرد مطلق), each
   // with the weakest narrator carrying it. Filter by that narrator's grade to
   // surface suspect singular narrations (أفراد الضعفاء والمتروكين = مظنة النكارة).
@@ -1505,5 +1556,7 @@ server.listen(PORT, HOST, () =>
     const top30 = bs.slice().sort((a, b) => (b.hadithQty ?? 0) - (a.hadithQty ?? 0))
       .slice(0, 30).map((b) => b.bookId);
     if (base && top30.length) { scopedStats(base, top30); console.log("warmed default scope stats"); }
+    conflictIndex(); rawiIndex();   // ~10s + ~1s scans, once, in the background
+    console.log("warmed conflict + rawi indexes");
   } catch (e) { console.warn("scope warm skipped:", e.message); }
 })();

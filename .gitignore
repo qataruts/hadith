@@ -25,3 +25,6 @@ __pycache__/
 *.code-workspace
 .vscode/
 .idea/
+
+# internal planning/analysis (not published)
+findings/
