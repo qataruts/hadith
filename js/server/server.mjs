@@ -244,6 +244,36 @@ function parseBookScope(u) {
   return s.size ? s : null;
 }
 
+// Scoped stats are expensive (a distinct-narrator triple-join runs ~1.5s over a
+// 30-book scope) but the corpus is read-only, so a given book-set always yields
+// the same answer. Cache by the normalized book-set; the default scope is warmed
+// at startup so the home page never pays the cost interactively.
+const scopedStatsCache = new Map();
+function scopedStats(base, list) {
+  const key = list.slice().sort((a, b) => a - b).join(",");
+  const hit = scopedStatsCache.get(key);
+  if (hit) return hit;
+  const ph = list.map(() => "?").join(",");
+  const one = (sql) => Object.values(kg.prepare(sql).get(...list))[0];
+  const counts = {
+    books: list.length,
+    hadiths: one(`SELECT COUNT(*) n FROM hadiths WHERE book_id IN (${ph})`),
+    sanads: one(`SELECT COUNT(*) n FROM sanads s JOIN hadiths h ON h.id = s.hadith_id WHERE h.book_id IN (${ph})`),
+    groups: one(`SELECT COUNT(DISTINCT group_id) n FROM hadiths WHERE book_id IN (${ph}) AND group_id IS NOT NULL`),
+    rawis: one(`SELECT COUNT(DISTINCT sr.rawi_id) n FROM sanad_rawis sr
+                JOIN sanads s ON s.id = sr.sanad_id JOIN hadiths h ON h.id = s.hadith_id
+                WHERE h.book_id IN (${ph})`),
+    alems: base.counts.alems, aqwal: base.counts.aqwal, topics: base.counts.topics,
+  };
+  const topGroups = kg.prepare(
+    `SELECT group_id groupId, COUNT(*) narrations FROM hadiths
+     WHERE book_id IN (${ph}) AND group_id IS NOT NULL
+     GROUP BY group_id ORDER BY narrations DESC LIMIT 30`).all(...list);
+  const result = { ...base, counts, topGroups, scopedBooks: list.length };
+  scopedStatsCache.set(key, result);
+  return result;
+}
+
 // Semantic hits → group docs: drop empty groups (no narrations in corpus),
 // lightly boost well-attested meanings so famous hadith outrank obscure
 // near-duplicates at similar cosine distance.
@@ -435,24 +465,7 @@ const routes = {
     const base = await meta.findFirst({ where: { key: "stats" } });
     const scope = parseBookScope(u);
     if (!scope) return base;
-    const list = [...scope].map(Number).filter(Number.isFinite);
-    const ph = list.map(() => "?").join(",");
-    const one = (sql) => Object.values(kg.prepare(sql).get(...list))[0];
-    const counts = {
-      books: list.length,
-      hadiths: one(`SELECT COUNT(*) n FROM hadiths WHERE book_id IN (${ph})`),
-      sanads: one(`SELECT COUNT(*) n FROM sanads s JOIN hadiths h ON h.id = s.hadith_id WHERE h.book_id IN (${ph})`),
-      groups: one(`SELECT COUNT(DISTINCT group_id) n FROM hadiths WHERE book_id IN (${ph}) AND group_id IS NOT NULL`),
-      rawis: one(`SELECT COUNT(DISTINCT sr.rawi_id) n FROM sanad_rawis sr
-                  JOIN sanads s ON s.id = sr.sanad_id JOIN hadiths h ON h.id = s.hadith_id
-                  WHERE h.book_id IN (${ph})`),
-      alems: base.counts.alems, aqwal: base.counts.aqwal, topics: base.counts.topics,
-    };
-    const topGroups = kg.prepare(
-      `SELECT group_id groupId, COUNT(*) narrations FROM hadiths
-       WHERE book_id IN (${ph}) AND group_id IS NOT NULL
-       GROUP BY group_id ORDER BY narrations DESC LIMIT 30`).all(...list);
-    return { ...base, counts, topGroups, scopedBooks: list.length };
+    return scopedStats(base, [...scope].map(Number).filter(Number.isFinite));
   },
 
   "GET /api/search/hadiths": async (u) => {
@@ -1012,6 +1025,92 @@ const routes = {
     return ragContext(qs, nGroups, perGroup, parseBookScope(u));
   },
 
+  // «احكم على السند» — a random hadith's chain (narrators + grades) for the
+  // grade-the-chain learning quiz; returns the answer + weakest link for reveal.
+  "GET /api/quiz": async () => {
+    const maxId = kg.prepare("SELECT MAX(id) m FROM hadiths").get().m;
+    let h = null;
+    for (let t = 0; t < 20; t++) {
+      const rid = 1 + Math.floor(Math.random() * maxId);
+      const cand = kg.prepare(
+        `SELECT id, matn, taraf_nass, type FROM hadiths
+         WHERE id >= ? AND type_no IN (0,1) AND group_id IS NOT NULL AND matn != '' LIMIT 1`).get(rid);
+      if (cand && gradeKey(cand.matn) !== "other") { h = cand; break; }  // only clearly-gradable
+    }
+    if (!h) return null;
+    const rows = q.whyRows.all(h.id);
+    if (!rows.length) return null;
+    const bySanad = new Map();
+    for (const r of rows) (bySanad.get(r.sanad_id) ?? bySanad.set(r.sanad_id, []).get(r.sanad_id)).push(r);
+    const chain = [...bySanad.values()][0].reverse();   // transmission order (Companion → author)
+    let weakest = null;
+    for (const r of chain) {
+      if (isBreakName(r.nickname)) continue;
+      const sv = rankSevServer(r.rank ?? "");
+      if (!weakest || sv.sev > weakest.sev) weakest = { rawiId: r.rawi_id, name: r.nickname, rank: r.rank, ...sv };
+    }
+    return {
+      hadithId: h.id, taraf: h.taraf_nass, type: h.type,
+      chain: chain.map((r) => ({ rawiId: r.rawi_id, name: r.nickname, rank: r.rank, tabaka: r.tabaka })),
+      answer: gradeKey(h.matn), hukm: h.matn,
+      weakest: weakest ? { rawiId: weakest.rawiId, name: weakest.name, rank: weakest.rank } : null,
+    };
+  },
+
+  // الأفراد والغرائب — meanings that exist in a SINGLE chain (فرد مطلق), each
+  // with the weakest narrator carrying it. Filter by that narrator's grade to
+  // surface suspect singular narrations (أفراد الضعفاء والمتروكين = مظنة النكارة).
+  "GET /api/tafarrud": async (u) => {
+    const limit = clamp(u.searchParams.get("limit"), 30, 100);
+    const offset = clamp(u.searchParams.get("offset"), 0, 100000000);
+    const gk = u.searchParams.get("grade") || "";        // weakest-narrator grade class
+    const scope = parseBookScope(u);
+    const GRADE_LIKE = {
+      matruk: `(weak.rank LIKE '%متروك%' OR weak.rank LIKE '%كذاب%' OR weak.rank LIKE '%وضاع%' OR weak.rank LIKE '%يضع%')`,
+      daif: `(weak.rank LIKE '%ضعيف%' OR weak.rank LIKE '%منكر%')`,
+      majhul: `(weak.rank LIKE '%مجهول%' OR weak.rank LIKE '%مقبول%' OR weak.rank LIKE '%مستور%' OR weak.rank LIKE '%لين%')`,
+      saduq: `(weak.rank LIKE '%صدوق%' OR weak.rank LIKE '%حسن%' OR weak.rank LIKE '%لا بأس%')`,
+      thiqa: `(weak.rank LIKE '%ثقة%' OR weak.rank LIKE '%حافظ%' OR weak.rank LIKE '%إمام%' OR weak.rank LIKE '%حجة%')`,
+    };
+    const where = [];
+    const params = [];
+    if (GRADE_LIKE[gk]) where.push(GRADE_LIKE[gk]);
+    if (scope) { where.push(`h.book_id IN (${[...scope].map(() => "?").join(",")})`); params.push(...scope); }
+    const sql = `
+      WITH single AS (
+        SELECT group_id gid, MIN(id) sid FROM sanads WHERE group_id IS NOT NULL
+        GROUP BY group_id HAVING COUNT(*) = 1)
+      SELECT g.id groupId, g.nass, g.matn_no,
+             h.book_id bookId, h.id hadithId,
+             weak.id weakId, weak.nickname weakName, weak.rank weakRank, weak.tabaka weakTabaka,
+             comp.id sahabiId, comp.nickname sahabi
+      FROM single
+      JOIN meaning_groups g ON g.id = single.gid
+      JOIN sanads s ON s.id = single.sid
+      JOIN hadiths h ON h.id = s.hadith_id
+      JOIN sanad_rawis wsr ON wsr.sanad_id = single.sid AND wsr.pos > 0
+      JOIN rawis weak ON weak.id = wsr.rawi_id
+             AND weak.rank_no = (SELECT MAX(r2.rank_no) FROM sanad_rawis sr2
+                                 JOIN rawis r2 ON r2.id = sr2.rawi_id
+                                 WHERE sr2.sanad_id = single.sid AND sr2.pos > 0)
+      JOIN sanad_rawis csr ON csr.sanad_id = single.sid
+             AND csr.pos = (SELECT MAX(pos) FROM sanad_rawis WHERE sanad_id = single.sid)
+      JOIN rawis comp ON comp.id = csr.rawi_id
+      ${where.length ? "WHERE " + where.join(" AND ") : ""}
+      GROUP BY g.id ORDER BY g.id LIMIT ? OFFSET ?`;
+    const rows = kg.prepare(sql).all(...params, limit + 1, offset);
+    const hasMore = rows.length > limit;
+    return {
+      items: rows.slice(0, limit).map((r) => ({
+        groupId: r.groupId, hadithId: r.hadithId, nass: r.nass, hukmNo: r.matn_no,
+        book: bookName.get(r.bookId),
+        weakest: { rawiId: r.weakId, name: r.weakName, rank: r.weakRank, tabaka: r.weakTabaka },
+        sahabi: { rawiId: r.sahabiId, name: r.sahabi },
+      })),
+      hasMore, offset,
+    };
+  },
+
   "GET /api/topics": async (u) => {
     const parent = u.searchParams.get("parent");
     const where = parent ? { parentId: Number(parent) } : { level: 0 };
@@ -1107,3 +1206,15 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, HOST, () =>
   console.log(`hadith-kg api on http://localhost:${PORT}  app=${APP_DB}  kg=${KG_DB}`),
 );
+
+// Warm the default-scope stats (top-30 books by hadith count — the client's
+// first-load default) so the home page never pays the ~2.5s scoped recompute.
+(async () => {
+  try {
+    const base = await meta.findFirst({ where: { key: "stats" } });
+    const bs = await books.findMany({});
+    const top30 = bs.slice().sort((a, b) => (b.hadithQty ?? 0) - (a.hadithQty ?? 0))
+      .slice(0, 30).map((b) => b.bookId);
+    if (base && top30.length) { scopedStats(base, top30); console.log("warmed default scope stats"); }
+  } catch (e) { console.warn("scope warm skipped:", e.message); }
+})();

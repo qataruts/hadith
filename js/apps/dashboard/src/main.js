@@ -11,6 +11,8 @@ import { rawiPage } from "./pages/rawi.js";
 import { alemPage, alemsPage } from "./pages/alem.js";
 import { bookPage, booksPage } from "./pages/books.js";
 import { topicsPage } from "./pages/topics.js";
+import { tafarrud } from "./pages/tafarrud.js";
+import { quiz } from "./pages/quiz.js";
 import { chatPage } from "./pages/chat.js";
 
 const routes = [
@@ -23,14 +25,18 @@ const routes = [
   [/^\/alems/, alemsPage, "النقّاد"],
   [/^\/book\/(\d+)/, bookPage, "كتاب"],
   [/^\/books/, booksPage, "الكتب"],
-  [/^\/topics(?:\/(\d+))?/, topicsPage, "الموضوعات"],
+  [/^\/topics(?:\/(\d+))?/, topicsPage, "المواضيع"],
+  [/^\/tafarrud/, tafarrud, "الأفراد والغرائب"],
+  [/^\/quiz/, quiz, "احكم على السند"],
   [/^\/chat/, chatPage, "المحادثة البحثية"],
 ];
 
 const NAV = [
   ["#/", "الرئيسية"],
   ["#/search", "البحث"],
-  ["#/topics", "الموضوعات"],
+  ["#/topics", "المواضيع"],
+  ["#/tafarrud", "الأفراد والغرائب"],
+  ["#/quiz", "احكم على السند"],
   ["#/books", "الكتب"],
   ["#/alems", "النقّاد"],
   ["#/chat", "المحادثة البحثية"],

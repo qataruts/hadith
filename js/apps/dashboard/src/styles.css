@@ -245,6 +245,13 @@ hr.hair { border: 0; border-top: 1px solid var(--hairline); margin: 16px 0; }
 .why-list { margin: 4px 0 0; padding-inline-start: 20px; line-height: 1.9; }
 .why-list li { margin-bottom: 3px; }
 
+/* ── احكم على السند (quiz) ── */
+.quiz-options { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 14px; }
+.quiz-opt { padding: 14px; font-size: 15px; cursor: pointer; }
+.quiz-opt:disabled { cursor: default; }
+.quiz-opt.correct { border-color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
+.quiz-opt.wrong { border-color: var(--critical); background: color-mix(in srgb, var(--critical) 10%, transparent); }
+
 /* ── مسار الانتقال الجغرافي (geo map) ── */
 .geo-wrap {
   border: 1px solid var(--hairline); border-radius: var(--radius); overflow: auto;

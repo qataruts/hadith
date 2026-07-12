@@ -39,6 +39,8 @@ export const api = {
   alems: () => get("/alems"),
   books: () => get("/books"),
   book: (id, limit = 30, offset = 0) => get(`/book/${id}`, { limit, offset }),
+  tafarrud: (grade, offset = 0) => get("/tafarrud", { grade, offset, limit: 40 }),
+  quiz: () => get("/quiz"),
   topics: (parent) => get("/topics", parent ? { parent } : {}),
   topic: (id) => get(`/topic/${id}`),
 };

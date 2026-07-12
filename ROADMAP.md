@@ -32,8 +32,23 @@ installers + public Docker image).
   self-contained SVG (no tiles) placing cities by lat/lng, sized by narrator
   count, with weighted directional flow arcs from death_place/iqama.
 
-## v1.2 candidate (local, unreleased since v1.1.0)
-- Contact auditor + geo map are built and local — bundle into v1.2.0 when ready.
+- **v1.3.0** — «الأفراد والغرائب» (network-wide tafarrud: singular-chain meanings
+  with their weakest narrator, filterable by grade) · «احكم على السند» (grade-the-
+  chain quiz) · home-page performance fix (scoped stats cached + warmed at
+  startup: ~3.9s → instant) · «الموضوعات» → «المواضيع» in the nav.
+
+## Design & branding (owner-requested — make it professional)
+Design cues studied from the Quran app «مشكاة» (js/apps/studio/src/theme.css):
+warm-paper canvas #f7f4ee, warm-brown ink #241f18, ONE emerald accent #0b6e56,
+muted gold #a97e2f for illumination; Amiri used for ALL titles (calligraphic
+headings — the key premium move); red avoided; signature gold-keyline "mushaf
+page" frame; pill nav + docs-style omnibox search; three modes (light/dark/sepia).
+- **Visual overhaul (الجامع)** — warmer palette, Amiri for headings not just body,
+  gold illumination accents, a framed hadith-display component, refined spacing.
+- **Logo / icon** — «الجامع» has a double meaning (the comprehensive collection +
+  the congregational mosque الجامع). Natural icon: a mosque dome / mihrab arch,
+  or converging isnad threads. Build full set: favicon, app/PWA icons, desktop
+  installer icons, OG image. Currently only a 📚 emoji + generated geometric icon.
 
 ## Next up
 - Reprioritize with owner. Candidates below (v1.1 polish + v2 features).
