@@ -17,6 +17,7 @@ import { quiz } from "./pages/quiz.js";
 import { board } from "./pages/board.js";
 import { icma } from "./pages/icma.js";
 import { conflicts } from "./pages/conflicts.js";
+import { check } from "./pages/check.js";
 import { chatPage } from "./pages/chat.js";
 
 const routes = [
@@ -34,6 +35,7 @@ const routes = [
   [/^\/topics(?:\/(\d+))?/, topicsPage, "المواضيع"],
   [/^\/tafarrud/, tafarrud, "الأفراد والغرائب"],
   [/^\/conflicts/, conflicts, "تعارض الأحكام"],
+  [/^\/check/, check, "حارس الإسناد"],
   [/^\/quiz/, quiz, "احكم على السند"],
   [/^\/chat/, chatPage, "المحادثة البحثية"],
 ];
@@ -44,6 +46,7 @@ const NAV = [
   ["#/topics", "المواضيع"],
   ["#/tafarrud", "الأفراد والغرائب"],
   ["#/conflicts", "تعارض الأحكام"],
+  ["#/check", "حارس الإسناد"],
   ["#/quiz", "احكم على السند"],
   ["#/books", "الكتب"],
   ["#/alems", "النقّاد"],

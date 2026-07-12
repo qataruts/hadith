@@ -32,6 +32,14 @@ installers + public Docker image).
   self-contained SVG (no tiles) placing cities by lat/lng, sized by narrator
   count, with weighted directional flow arcs from death_place/iqama.
 
+- **v1.9.0** — **نبراس · حارس الإسناد** (swarm rec #3, first slice): paste a
+  circulating hadith/claim → the app searches the whole encyclopedia (FTS +
+  literal token-coverage, works without a key) and reports its matched wording,
+  book, grade, and the MEANING's full route-grade distribution — or plainly «لم
+  أعثر عليه في هذه الموسوعة» (a coverage statement, never «لا أصل له»). Grade-
+  first, cited, hedged, under a permanent «بياناتٌ من الموسوعة، لا فتوى» banner.
+  Also Phase 0: an internal `callApi` call-path so higher Nibras phases can
+  compose route handlers in-process. New: GET /api/nibras/check · pages/check.js.
 - **v1.8.0** — **جسر القرآن ⇄ الحديث** (swarm rec #2): the Quranic quotes already
   highlighted inside hadith text (117,194 spans in `hadith_ayas`) now RESOLVE to a
   سورة:آية and link to the sibling Quran app مشكاة (quran.uts.qa/#/read/:sura/:aya).

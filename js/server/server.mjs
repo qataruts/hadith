@@ -1412,6 +1412,53 @@ const routes = {
     return { conflicts, total, minGap };
   },
 
+  // نبراس · حارس الإسناد (claim_check) — paste a circulating hadith/claim and get
+  // its status FROM THE RECORD: matched wording, its book + grade, and whether the
+  // MEANING is authenticated by any route. Absence is a coverage statement
+  // («لم أعثر عليه في هذه الموسوعة»), NEVER an existential «لا أصل له». The server
+  // only READS stored gradings; it computes no ruling of its own.
+  "GET /api/nibras/check": async (u) => {
+    const qs = (u.searchParams.get("q") ?? "").trim();
+    const nq = normalizeArabic(qs).replace(/\s+/g, " ").trim();
+    if (nq.length < 8) return { status: "empty" };
+    const scope = parseBookScope(u);
+    const qTokens = new Set(nq.split(" ").filter((w) => w.length > 1));
+    const cand = await hadiths.search(nq, { limit: scope ? 300 : 60 });
+    const scored = cand
+      .filter((h) => !scope || scope.has(h.bookId))
+      .map((h) => {
+        const matn = normalizeArabic(matnOf(h) || "").replace(/\s+/g, " ");
+        const mSet = new Set(matn.split(" ").filter((w) => w.length > 1));
+        let hit = 0; for (const t of qTokens) if (mSet.has(t)) hit++;
+        return { h, coverage: qTokens.size ? hit / qTokens.size : 0, literal: matn.includes(nq) };
+      })
+      .sort((a, b) => (b.literal - a.literal) || (b.coverage - a.coverage));
+    const best = scored[0];
+    if (!best || best.coverage < 0.4)
+      return { status: "not_found", searched: 715790, scoped: !!scope };
+
+    const hid = best.h.hadithId;
+    const grp = kg.prepare("SELECT group_id FROM hadiths WHERE id = ?").get(hid)?.group_id;
+    let group = null;
+    if (grp) {
+      const dist = kg.prepare(
+        "SELECT matn_no lv, COUNT(*) c FROM hadiths WHERE group_id = ? GROUP BY matn_no ORDER BY matn_no").all(grp);
+      const routes = kg.prepare("SELECT COUNT(*) n FROM sanads WHERE group_id = ?").get(grp).n;
+      group = { groupId: grp, dist, routes, bestLv: dist[0]?.lv, worstLv: dist[dist.length - 1]?.lv };
+    }
+    const matches = scored.slice(0, 6).filter((s) => s.coverage >= 0.4).map((s) => ({
+      hadithId: s.h.hadithId, book: bookName.get(s.h.bookId), noInBook: s.h.noInBook,
+      hukm: s.h.hukm, coverage: Math.round(s.coverage * 100), taraf: s.h.taraf,
+    }));
+    return {
+      status: (best.literal || best.coverage >= 0.85) ? "found" : "similar",
+      searched: 715790, scoped: !!scope,
+      best: { hadithId: hid, book: bookName.get(best.h.bookId), noInBook: best.h.noInBook,
+              hukm: best.h.hukm, coverage: Math.round(best.coverage * 100) },
+      group, matches,
+    };
+  },
+
   // الأفراد والغرائب — meanings that exist in a SINGLE chain (فرد مطلق), each
   // with the weakest narrator carrying it. Filter by that narrator's grade to
   // surface suspect singular narrations (أفراد الضعفاء والمتروكين = مظنة النكارة).
@@ -1487,6 +1534,23 @@ const routes = {
     return { ...t, children, group, narrations };
   },
 };
+
+// ── نبراس Phase 0: internal call-path ────────────────────────────────────────
+// Invoke a GET route handler in-process (no HTTP round-trip), so higher-level
+// features can compose board / ICMA / contact / why / conflicts results
+// directly. Mirrors the dispatcher's path-matching. Returns the raw object.
+async function callApi(pathname, query = {}) {
+  const u = new URL("http://internal" + pathname);
+  for (const [k, v] of Object.entries(query))
+    if (v != null && v !== "") u.searchParams.set(k, String(v));
+  for (const [key, handler] of Object.entries(routes)) {
+    const [method, pattern] = key.split(" ");
+    if (method !== "GET") continue;
+    const m = u.pathname.match(new RegExp("^" + pattern.replace(/:(\w+)/g, "([^/]+)") + "$"));
+    if (m) return handler(u, ...m.slice(1));
+  }
+  return null;
+}
 
 // ---- http ---------------------------------------------------------------------
 const server = http.createServer(async (req, res) => {
