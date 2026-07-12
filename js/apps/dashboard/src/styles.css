@@ -213,6 +213,10 @@ hr.hair { border: 0; border-top: 1px solid var(--hairline); margin: 16px 0; }
   outline: 1px solid color-mix(in srgb, var(--rk, var(--ink-3)) 60%, transparent);
 }
 .chain-node.is-break .chain-dot { background: transparent; outline: 1.5px dashed var(--critical); }
+/* the book the chain lands in — a square gold source marker, distinct from round rawi dots */
+.chain-node.is-book .chain-dot { border-radius: 3px; background: var(--gold); }
+.chain-node.is-book .chain-name { font-family: var(--font-head); font-weight: 700; font-size: 16px; }
+.chain-node.is-book .chain-name a { color: var(--gold); }
 /* colored connecting segment (to the NEXT node); width encodes weakest-link color */
 .chain-line { position: absolute; right: 6px; top: 26px; bottom: -8px; width: 3px;
   background: var(--seg, var(--hairline)); border-radius: 2px; }

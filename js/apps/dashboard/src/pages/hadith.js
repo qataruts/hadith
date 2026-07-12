@@ -58,7 +58,7 @@ export async function hadithPage({ args: [id], render }) {
         </div>
         ${s.hukm ? `<p class="muted" style="margin:6px 0 10px">${esc(s.hukm)}</p>` : ""}
         <div class="why-slot" data-sanad="${i}"></div>
-        ${renderChain(s, { idx: i })}
+        ${renderChain(s, { idx: i, book: book?.name, bookId: h.bookId, noInBook: h.noInBook })}
       </div>`).join("")}
   </div>` : ""}
 

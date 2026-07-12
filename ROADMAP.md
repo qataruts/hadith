@@ -32,6 +32,10 @@ installers + public Docker image).
   self-contained SVG (no tiles) placing cities by lat/lng, sized by narrator
   count, with weighted directional flow arcs from death_place/iqama.
 
+- **v1.5.1** — every isnad now visibly ends in its **book**: the chain X-ray gets
+  a gold book terminal above the author (with the number-in-book), and the merged
+  graph labels each author leaf with the book(s) its routes land in (multi-book
+  authors like النسائي show الصغرى + الكبرى).
 - **v1.5.0** — **لوحة الاعتبار** (the i'tibar board): a purpose-built workbench at
   `#/board/:groupId` that fuses the merged isnad network with a group-level
   i'tibar. Picks the studied narrator (default = the madār, found by Juynboll's

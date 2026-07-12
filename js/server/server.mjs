@@ -917,6 +917,7 @@ const routes = {
       rawiId: PROPHET, name: "النبي ﷺ", role: "prophet", count: 0, depthSum: 0,
     }]]);
     const edges = new Map();     // "from>to" -> {from, to, count}
+    const authorBooks = new Map(); // author rawi_id -> Map(book_id -> route count)
     let used = 0;
     for (const c of chains.values()) {
       const rw = c.rawis;
@@ -926,6 +927,13 @@ const routes = {
       if (bookFilter && c.bookId !== bookFilter) continue;
       if (problemsOnly && !c.problem) continue;
       used++;
+      // every chain terminates in a book — tally it against its author (pos 0)
+      if (c.bookId != null) {
+        const aId = rw[0].rawi_id;
+        const bm = authorBooks.get(aId) ?? new Map();
+        bm.set(c.bookId, (bm.get(c.bookId) ?? 0) + 1);
+        authorBooks.set(aId, bm);
+      }
       // transmission order: prophet → sahabi (last) → … → author (pos 0)
       const seq = [
         { rawi_id: PROPHET },
@@ -964,6 +972,12 @@ const routes = {
         : (n.middleCount ?? 0) > 0 ? "rawi"
         : "author",
       depth: n.count ? n.depthSum / n.count : 0, depthSum: undefined,
+      // the book(s) each chain ends in — attached to its author (pos 0)
+      books: authorBooks.has(n.rawiId)
+        ? [...authorBooks.get(n.rawiId)]
+            .map(([bid, ct]) => ({ name: bookName.get(bid), count: ct }))
+            .sort((a, b) => b.count - a.count)
+        : undefined,
     }));
     // madar: the pivot the routes converge through — ranked by how often the
     // narrator sits in the MIDDLE of a chain, so being a book author too

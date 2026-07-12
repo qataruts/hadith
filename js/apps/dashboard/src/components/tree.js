@@ -74,7 +74,7 @@ function layout(nodes, edges) {
   }
   const widest = Math.max(1, ...dense.map((L) => L.length));
   const W = Math.max(680, widest * (NODE_W + MIN_GAP_X) + PAD * 2);
-  const H = (dense.length - 1) * GAP_Y + NODE_H + PAD * 2;
+  const H = (dense.length - 1) * GAP_Y + NODE_H + PAD * 2 + 16;  // +room for book label under author leaves
   const xy = new Map();
   dense.forEach((L, li) => {
     const step = (W - PAD * 2) / (L.length + 1);
@@ -190,11 +190,17 @@ export function mountIsnadTree(container, tree, { budget = 46, fetchRawi, onEdge
       const label = cps.length > 18 ? cps.slice(0, 17).join("") + "…" : (n.name ?? "");
       const hid = hiddenCount(n.rawiId);
       const clickable = n.role !== "prophet" && n.role !== "break";
+      // every chain ends in a book — name it under the author (leaf) node
+      const bk = n.role === "author" && n.books?.length ? n.books : null;
+      const bkLabel = bk
+        ? Array.from(bk[0].name ?? "").slice(0, 20).join("") + (bk.length > 1 ? ` +${bk.length - 1}` : "")
+        : "";
       return `<g class="tnode ${clickable ? "clickable" : ""}" data-id="${n.rawiId}" ${clickable ? 'tabindex="0" role="button"' : ""}>
         <rect x="${p.x - NODE_W / 2}" y="${p.y - NODE_H / 2}" width="${NODE_W}" height="${NODE_H}"
           rx="9" fill="${fill}" stroke="${stroke}" stroke-width="${isMadar ? 2.6 : 1.7}" ${dash}/>
         <text x="${p.x}" y="${p.y + 1}" text-anchor="middle" dominant-baseline="middle"
           fill="${ink}" font-size="12.5" font-weight="${n.role === "sahabi" || isMadar ? 600 : 400}">${esc(label)}</text>
+        ${bk ? `<text x="${p.x}" y="${p.y + NODE_H / 2 + 12}" text-anchor="middle" fill="var(--gold)" font-size="9.5" font-weight="600"><title>${esc(bk.map((b) => `${b.name} (${b.count})`).join(" · "))}</title>${esc(bkLabel)}</text>` : ""}
         ${isMadar ? `<text x="${p.x}" y="${p.y - NODE_H / 2 - 6}" text-anchor="middle" fill="var(--accent)" font-size="10.5" font-weight="700">مدار الحديث</text>` : ""}
         ${hid ? `<g class="expand" data-expand="${n.rawiId}"><rect x="${p.x - 22}" y="${p.y + NODE_H / 2 - 3}" width="44" height="17" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="0.8"/>
           <text x="${p.x}" y="${p.y + NODE_H / 2 + 6}" text-anchor="middle" dominant-baseline="middle" fill="var(--accent)" font-size="10.5" font-weight="600">+${fmt(hid)}</text></g>` : ""}

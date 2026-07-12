@@ -5,9 +5,9 @@
  * link. The weakest narrator is flagged. Names are buttons → dossier card.
  * Pseudo-narrators (breaks/stubs) render as dashed markers, not people.
  */
-import { esc, rankBadge, isBreakMarker, rankSev, rankVar, edgeVar } from "../util.js";
+import { esc, fmt, rankBadge, isBreakMarker, rankSev, rankVar, edgeVar } from "../util.js";
 
-export function renderChain(sanad, { idx = 0 } = {}) {
+export function renderChain(sanad, { idx = 0, book, bookId, noInBook } = {}) {
   const chain = sanad.chain ?? [];
   // find the weakest real narrator (highest severity) to flag it
   let weakIdx = -1, weakSev = -1;
@@ -37,5 +37,15 @@ export function renderChain(sanad, { idx = 0 } = {}) {
       ${name} ${meta}
     </div>`;
   });
+  // the isnad is only complete when it lands in a book — show it as the terminal
+  // above the author (the collector who recorded it)
+  if (book) {
+    const bname = bookId ? `<a href="#/book/${bookId}">${esc(book)}</a>` : esc(book);
+    nodes.unshift(`<div class="chain-node is-book" style="--rk:var(--gold);--seg:var(--gold)">
+      <span class="chain-dot"></span><span class="chain-line"></span>
+      <span class="chain-name">${bname}</span>
+      <span class="chain-meta">الكتاب${noInBook ? ` · رقم ${fmt(noInBook)}` : ""}</span>
+    </div>`);
+  }
   return `<div class="chain">${nodes.join("")}</div>`;
 }
