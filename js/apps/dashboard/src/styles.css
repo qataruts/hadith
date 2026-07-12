@@ -199,6 +199,10 @@ hr.hair { border: 0; border-top: 1px solid var(--hairline); margin: 16px 0; }
 }
 .nass .aya { color: var(--aya); font-weight: 700; }
 .nass .aya::before { content: "﴿"; } .nass .aya::after { content: "﴾"; }
+/* a resolved Quranic quote links to مشكاة (quran.uts.qa) */
+.nass a.aya-link { text-decoration: none; cursor: pointer; border-radius: 4px;
+  transition: background .12s; }
+.nass a.aya-link:hover { background: var(--accent-soft); text-decoration: none; }
 .nass a.rawi-link { color: inherit; border-bottom: 1.5px dotted color-mix(in srgb, var(--accent) 55%, transparent); }
 .nass a.rawi-link:hover { color: var(--accent); text-decoration: none; background: var(--accent-soft); border-radius: 3px; }
 .nass-sm { font-size: 18px; line-height: 2; }

@@ -16,6 +16,7 @@ import { fts } from "@monlite/fts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { coll, normalizeArabic } from "../shared/monlite-schemas.mjs";
+import { SURA_NO, SURA_NAME } from "../shared/sura-map.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const arg = (name, dflt) => {
@@ -237,6 +238,9 @@ function chainPasses(c, f) {
 }
 
 /** Parse ?books=1,2,3 (corpus scope) → Set<int> or null (whole corpus). */
+// «سورة <name> آية <n>» inside hadith text, matched on normalized text
+const AYA_RE = /سوره\s+(.+?)\s+ايه\s+(\d+)/;
+
 function parseBookScope(u) {
   const raw = u.searchParams.get("books");
   if (!raw) return null;
@@ -547,8 +551,19 @@ const routes = {
     return { hits };
   },
 
-  "GET /api/hadith/:id": async (_u, id) =>
-    (await hadiths.findFirst({ where: { hadithId: Number(id) } })),
+  "GET /api/hadith/:id": async (_u, id) => {
+    const h = await hadiths.findFirst({ where: { hadithId: Number(id) } });
+    if (!h) return null;
+    // resolve each Quranic-quote span to a سورة:آية reference (link to مشكاة)
+    if (h.ayas?.length && h.nass) {
+      h.ayaRefs = h.ayas.map(([s, e]) => {
+        const m = normalizeArabic(h.nass.slice(s, e)).replace(/\s+/g, " ").match(AYA_RE);
+        const no = m && SURA_NO[m[1].trim()];
+        return no ? [s, e, no, Number(m[2]), SURA_NAME[no]] : null;
+      }).filter(Boolean);
+    }
+    return h;
+  },
 
   // الاعتبار — classify every route of this hadith's meaning, relative to a
   // studied narrator R: متابعة تامة (someone else shares R's own shaykh),

@@ -11,7 +11,8 @@ export function renderNass(h, { linkRawis = true } = {}) {
   const text = h.nass ?? "";
   const marks = [];
   if (h.matnStart != null) marks.push({ s: h.matnStart, e: h.matnEnd, cls: "matn" });
-  for (const [s, e] of h.ayas ?? []) marks.push({ s, e, cls: "aya" });
+  const ref = new Map((h.ayaRefs ?? []).map(([s, e, sura, aya, name]) => [`${s}:${e}`, { sura, aya, name }]));
+  for (const [s, e] of h.ayas ?? []) marks.push({ s, e, cls: "aya", ref: ref.get(`${s}:${e}`) });
   for (const [rid, s, e] of h.mentions ?? [])
     marks.push({ s, e, cls: "rawi", rid });
 
@@ -27,7 +28,12 @@ export function renderNass(h, { linkRawis = true } = {}) {
     const active = marks.filter((m) => m.s <= s && m.e >= e);
     let piece = seg;
     // innermost first: aya inside matn, mention wraps its own text
-    if (active.some((m) => m.cls === "aya")) piece = `<span class="aya">${piece}</span>`;
+    const aya = active.find((m) => m.cls === "aya");
+    if (aya)
+      piece = aya.ref
+        ? `<a class="aya aya-link" href="https://quran.uts.qa/#/read/${aya.ref.sura}/${aya.ref.aya}"
+             target="_blank" rel="noopener" title="افتح الآية في مشكاة — سورة ${esc(aya.ref.name)} آية ${aya.ref.aya}">${piece}</a>`
+        : `<span class="aya">${piece}</span>`;
     const mention = active.find((m) => m.cls === "rawi");
     if (mention)
       piece = linkRawis && mention.rid != null

@@ -32,6 +32,14 @@ installers + public Docker image).
   self-contained SVG (no tiles) placing cities by lat/lng, sized by narrator
   count, with weighted directional flow arcs from death_place/iqama.
 
+- **v1.8.0** — **جسر القرآن ⇄ الحديث** (swarm rec #2): the Quranic quotes already
+  highlighted inside hadith text (117,194 spans in `hadith_ayas`) now RESOLVE to a
+  سورة:آية and link to the sibling Quran app مشكاة (quran.uts.qa/#/read/:sura/:aya).
+  Resolution is a cheap parse of the literal «سورة X آية Y» label in the span
+  against a 114-sura name→number map exported from the Quran project's DB — 99.8%
+  resolve; the rest stay highlighted, just unlinked. The unique cross-project
+  bridge (same owner holds both graphs). New: `shared/sura-map.mjs`, ayaRefs on
+  `/api/hadith/:id`, linked spans in `renderNass`.
 - **v1.7.0** — **تعارض الأحكام بين الطرق** at `#/conflicts` (swarm rec #1): a
   browsable, severity-sorted list of the 29,164 hadith whose isnads are graded
   differently (a matn sound from one route, weak from another) — the core علل
