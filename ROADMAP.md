@@ -32,6 +32,15 @@ installers + public Docker image).
   self-contained SVG (no tiles) placing cities by lat/lng, sized by narrator
   count, with weighted directional flow arcs from death_place/iqama.
 
+- **v1.6.0** — **تحليل الإسناد والمتن (ICMA)** at `#/icma/:groupId`: correlates matn
+  wording with isnad topology. Clusters routes by their exact (normalized) taraf,
+  and for each wording carried by ≥2 routes finds the deepest narrator common to
+  all of them — the point at which the wording was fixed and below which the
+  routes branch. Reports «نقاء اللفظ» (purity = share of that narrator's routes
+  carrying the wording) and an early/late era so attributions are honest: a
+  high-purity EARLY narrator is a real transmission event; a late one is a
+  compiler's line. Strictly descriptive — never overrides the recorded grade.
+  Reachable from the meaning page and the i'tibar board.
 - **v1.5.1** — every isnad now visibly ends in its **book**: the chain X-ray gets
   a gold book terminal above the author (with the number-in-book), and the merged
   graph labels each author leaf with the book(s) its routes land in (multi-book

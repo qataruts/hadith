@@ -45,8 +45,13 @@ export async function board({ args: [id], params }) {
   </div>
 
   <div class="card verdict-card ${vClass}" style="margin-top:14px">
-    <div class="muted" style="font-size:12px;margin-bottom:4px">خلاصة الاعتبار</div>
-    <div class="verdict-text">${esc(b.verdict.text)}</div>
+    <div class="spread" style="align-items:flex-start;gap:10px">
+      <div>
+        <div class="muted" style="font-size:12px;margin-bottom:4px">خلاصة الاعتبار</div>
+        <div class="verdict-text">${esc(b.verdict.text)}</div>
+      </div>
+      <a class="btn" href="#/icma/${id}" style="flex:none">تحليل الإسناد والمتن ←</a>
+    </div>
   </div>
 
   <div class="card" style="margin-top:14px">

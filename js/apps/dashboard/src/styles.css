@@ -312,6 +312,17 @@ hr.hair { border: 0; border-top: 1px solid var(--hairline); margin: 16px 0; }
 .verdict-card.v-medium { border-inline-start-color: var(--gold); background: color-mix(in srgb, var(--gold) 7%, var(--surface)); }
 .verdict-card.v-alone  { border-inline-start-color: var(--rk-daif); background: color-mix(in srgb, var(--rk-daif) 7%, var(--surface)); }
 
+/* ICMA — isnad-cum-matn findings */
+.icma-find { margin-top: 12px; }
+.icma-attr { font-size: 15px; line-height: 1.7; }
+.icma-era { background: var(--surface-2); color: var(--ink-2); font-weight: 600; }
+.icma-purity { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
+.icma-bar { display: inline-block; width: 60px; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.icma-bar > span { display: block; height: 100%; border-radius: 3px; }
+.icma-purity.p-strong .icma-bar > span { background: var(--rk-thiqa); }
+.icma-purity.p-mid .icma-bar > span { background: var(--gold); }
+.icma-purity.p-weak .icma-bar > span { background: var(--ink-3); }
+
 .itibar-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 @media (max-width: 820px) { .itibar-grid { grid-template-columns: 1fr; } }
 .itibar-col { border: 1px solid var(--hairline); border-radius: 10px; padding: 12px; background: var(--surface); }

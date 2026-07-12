@@ -719,6 +719,104 @@ const routes = {
     };
   },
 
+  // تحليل الإسناد والمتن (ICMA) — correlate matn wording with isnad topology.
+  // Cluster routes by their exact (normalized) matn; for each distinct wording
+  // carried by ≥2 routes, find the deepest narrator common to ALL of them — the
+  // point at which that wording was fixed and below which the routes branch.
+  // Corpus-wide: the whole tradition of a wording must be seen, not a book subset.
+  "GET /api/group/:id/icma": async (u, id) => {
+    const groupId = Number(id);
+    const rows = kg.prepare(
+      `SELECT s.id sanad_id, s.hadith_id, h.book_id, h.taraf_nass matn, s.matn grade,
+              sr.pos, sr.rawi_id, r.nickname, r.tabaka
+       FROM sanads s JOIN hadiths h ON h.id = s.hadith_id
+       JOIN sanad_rawis sr ON sr.sanad_id = s.id
+       JOIN rawis r ON r.id = sr.rawi_id
+       WHERE s.group_id = ? AND h.taraf_nass IS NOT NULL AND length(h.taraf_nass) >= 12
+       ORDER BY s.id, sr.pos`).all(groupId);
+    if (!rows.length) return { available: false };
+
+    const byS = new Map();
+    for (const r of rows) {
+      const c = byS.get(r.sanad_id)
+        ?? { hadithId: r.hadith_id, bookId: r.book_id, grade: r.grade, matn: r.matn, rows: [] };
+      c.rows.push(r); byS.set(r.sanad_id, c);
+    }
+    const routes = [...byS.entries()].map(([sid, c]) => ({
+      sid, hadithId: c.hadithId, bookId: c.bookId, grade: c.grade, matn: (c.matn || "").trim(),
+      seq: [...c.rows].reverse(),            // [0] = Companion
+    })).filter((r) => r.seq.length >= 2 && r.matn.length >= 12);
+    if (routes.length < 3) return { available: true, uniform: true, totalRoutes: routes.length };
+
+    const norm = (t) => normalizeArabic(t).replace(/\s+/g, " ").trim();
+    const clusters = new Map();
+    for (const r of routes) {
+      const k = norm(r.matn);
+      const c = clusters.get(k) ?? { forms: new Map(), routes: [] };
+      c.forms.set(r.matn, (c.forms.get(r.matn) ?? 0) + 1);   // count exact surface forms
+      c.routes.push(r); clusters.set(k, c);
+    }
+    // representative = the most common exact wording (avoids annotated outliers)
+    for (const c of clusters.values())
+      c.matn = [...c.forms].sort((a, b) => b[1] - a[1] || b[0].length - a[0].length)[0][0];
+    const list = [...clusters.values()].sort((a, b) => b.routes.length - a.routes.length);
+    const base = list[0];
+    if (list.length < 2)
+      return { available: true, uniform: true, totalRoutes: routes.length, base: { matn: base.matn, routes: base.routes.length } };
+
+    // narrator → set of routes passing through him (for wording purity)
+    const through = new Map();
+    for (const r of routes)
+      for (const x of r.seq)
+        (through.get(x.rawi_id) ?? through.set(x.rawi_id, new Set()).get(x.rawi_id)).add(r.sid);
+
+    const findings = [];
+    for (const c of list) {
+      if (c === base || c.routes.length < 2) continue;
+      // deepest narrator common to ALL routes carrying this wording (shared prefix
+      // from the Companion) — the point where the wording was fixed
+      let shared = c.routes[0].seq.map((x) => x.rawi_id);
+      for (const r of c.routes.slice(1)) {
+        let i = 0;
+        while (i < shared.length && i < r.seq.length && shared[i] === r.seq[i].rawi_id) i++;
+        shared = shared.slice(0, i);
+      }
+      if (!shared.length) continue;
+      const depth = shared.length;                 // 1 = only the Companion
+      const Xnode = c.routes[0].seq[depth - 1];
+      const chainLen = Math.round(c.routes.reduce((s, r) => s + r.seq.length, 0) / c.routes.length);
+      const throughX = through.get(Xnode.rawi_id)?.size ?? c.routes.length;
+      const books = [...new Set(c.routes.map((r) => r.bookId))]
+        .map((b) => bookName.get(b)).filter(Boolean).slice(0, 6);
+      // where in the chain the wording is fixed: near the Companion (early — a
+      // substantive transmission event) vs near the books (late — likely a
+      // compiler's phrasing). depth counts from the Companion (1 = at him).
+      const era = depth <= 1 ? "companion" : depth <= Math.ceil(chainLen * 0.45) ? "early" : "late";
+      findings.push({
+        narrator: { rawiId: Xnode.rawi_id, name: Xnode.nickname, tabaka: Xnode.tabaka ?? null },
+        atCompanion: depth === 1, era, depth,
+        matn: c.matn,
+        routes: c.routes.length,
+        throughX,
+        purity: Math.round((c.routes.length / throughX) * 100),   // how private the wording is to X
+        books,
+        sample: c.routes[0].hadithId,
+        grades: [...new Set(c.routes.map((r) => gradeKey(r.grade)))],
+      });
+    }
+    findings.sort((a, b) => b.routes * (b.purity / 100) - a.routes * (a.purity / 100));
+    const inFindings = findings.reduce((s, f) => s + f.routes, 0);
+    return {
+      available: true,
+      groupId, totalRoutes: routes.length,
+      distinctWordings: list.length,
+      base: { matn: base.matn, routes: base.routes.length },
+      uniformRoutes: base.routes.length,
+      analysed: inFindings,
+      findings: findings.slice(0, 15),
+    };
+  },
+
   // فحص الاتصال الزمني — audit each adjacent link of the chain for a hidden
   // break: a large generation (tabaqa) jump means narrators were likely dropped;
   // a death-year gap corroborates. Every narrator has a tabaqa, so coverage is full.

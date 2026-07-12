@@ -15,6 +15,7 @@ import { topicsPage } from "./pages/topics.js";
 import { tafarrud } from "./pages/tafarrud.js";
 import { quiz } from "./pages/quiz.js";
 import { board } from "./pages/board.js";
+import { icma } from "./pages/icma.js";
 import { chatPage } from "./pages/chat.js";
 
 const routes = [
@@ -22,6 +23,7 @@ const routes = [
   [/^\/search/, search, "البحث"],
   [/^\/hadith\/(\d+)/, hadithPage, "حديث"],
   [/^\/board\/(\d+)/, board, "لوحة الاعتبار"],
+  [/^\/icma\/(\d+)/, icma, "تحليل الإسناد والمتن"],
   [/^\/group\/(\d+)/, groupPage, "معنى"],
   [/^\/rawi\/(\d+)/, rawiPage, "راوٍ"],
   [/^\/alem\/(\d+)/, alemPage, "ناقد"],

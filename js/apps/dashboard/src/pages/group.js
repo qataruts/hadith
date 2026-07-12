@@ -33,8 +33,9 @@ export async function groupPage({ args: [id], params }) {
       ${g.isQudsi ? `<span class="badge grade-hasan">قدسي</span>` : ""}
       ${g.scopedBooks ? `<span class="badge grade-hasan" title="الأرقام محسوبة ضمن الكتب المختارة">ضمن ${fmt(g.scopedBooks)} كتاباً مختاراً</span>` : ""}
     </div>
-    <div class="row" style="margin-top:12px">
+    <div class="row" style="margin-top:12px;gap:8px;flex-wrap:wrap">
       <a class="btn primary" href="#/board/${g.groupId}">افتح لوحة الاعتبار — المتابعات والشواهد والمدار</a>
+      <a class="btn" href="#/icma/${g.groupId}">تحليل الإسناد والمتن (ICMA)</a>
     </div>
   </div>
 

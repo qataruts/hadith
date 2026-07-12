@@ -34,6 +34,7 @@ export const api = {
   groupGeo: (id) => get(`/group/${id}/geo`),
   groupEdge: (id, from, to, filters = {}) => get(`/group/${id}/edge`, { from, to, ...filters }),
   groupBoard: (id, rawi) => get(`/group/${id}/board`, rawi ? { rawi } : {}),
+  groupIcma: (id) => get(`/group/${id}/icma`),
   rawi: (id) => get(`/rawi/${id}`),
   rawiHadiths: (id, limit = 20, offset = 0) => get(`/rawi/${id}/hadiths`, { limit, offset }),
   alem: (id, limit = 50, offset = 0) => get(`/alem/${id}`, { limit, offset }),

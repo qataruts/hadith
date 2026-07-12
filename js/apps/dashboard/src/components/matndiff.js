@@ -8,10 +8,10 @@ import { esc, fmt, gradeBadge } from "../util.js";
 import { stripTashkeel } from "../util.js";
 
 const norm = (w) => stripTashkeel(w).replace(/[^؀-ۿ]/g, "");
-const words = (s) => s.trim().split(/\s+/).filter(Boolean);
+export const words = (s) => s.trim().split(/\s+/).filter(Boolean);
 
 /** LCS over normalized words → ops: {type:'same'|'add'|'del', w} against base. */
-function diff(baseW, varW) {
+export function diff(baseW, varW) {
   const a = baseW.map(norm), b = varW.map(norm);
   const n = a.length, m = b.length;
   const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
@@ -30,7 +30,7 @@ function diff(baseW, varW) {
   return ops;
 }
 
-const renderOps = (ops) => ops.map((o) =>
+export const renderOps = (ops) => ops.map((o) =>
   o.t === "same" ? esc(o.w)
   : o.t === "add" ? `<span class="d-add">${esc(o.w)}</span>`
   : `<span class="d-del">${esc(o.w)}</span>`).join(" ");
