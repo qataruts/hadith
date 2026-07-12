@@ -33,6 +33,9 @@ export async function groupPage({ args: [id], params }) {
       ${g.isQudsi ? `<span class="badge grade-hasan">قدسي</span>` : ""}
       ${g.scopedBooks ? `<span class="badge grade-hasan" title="الأرقام محسوبة ضمن الكتب المختارة">ضمن ${fmt(g.scopedBooks)} كتاباً مختاراً</span>` : ""}
     </div>
+    <div class="row" style="margin-top:12px">
+      <a class="btn primary" href="#/board/${g.groupId}">افتح لوحة الاعتبار — المتابعات والشواهد والمدار</a>
+    </div>
   </div>
 
   <div class="card" style="margin-top:14px">

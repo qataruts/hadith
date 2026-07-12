@@ -301,6 +301,13 @@ hr.hair { border: 0; border-top: 1px solid var(--hairline); margin: 16px 0; }
 /* ── الاعتبار (i'tibar) ── */
 .itibar-rawi { font-size: 12.5px; padding: 4px 11px; }
 .itibar-rawi.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+/* لوحة الاعتبار verdict banner — colored by corroboration strength */
+.verdict-card { border-inline-start: 5px solid var(--ink-3); }
+.verdict-card .verdict-text { font-family: var(--font-head); font-weight: 700; font-size: 20px; line-height: 1.5; }
+.verdict-card.v-strong { border-inline-start-color: var(--rk-thiqa); background: color-mix(in srgb, var(--rk-thiqa) 6%, var(--surface)); }
+.verdict-card.v-medium { border-inline-start-color: var(--gold); background: color-mix(in srgb, var(--gold) 7%, var(--surface)); }
+.verdict-card.v-alone  { border-inline-start-color: var(--rk-daif); background: color-mix(in srgb, var(--rk-daif) 7%, var(--surface)); }
+
 .itibar-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 @media (max-width: 820px) { .itibar-grid { grid-template-columns: 1fr; } }
 .itibar-col { border: 1px solid var(--hairline); border-radius: 10px; padding: 12px; background: var(--surface); }

@@ -32,6 +32,15 @@ installers + public Docker image).
   self-contained SVG (no tiles) placing cities by lat/lng, sized by narrator
   count, with weighted directional flow arcs from death_place/iqama.
 
+- **v1.5.0** — **لوحة الاعتبار** (the i'tibar board): a purpose-built workbench at
+  `#/board/:groupId` that fuses the merged isnad network with a group-level
+  i'tibar. Picks the studied narrator (default = the madār, found by Juynboll's
+  common-link rule: closest-to-Companion narrator whose traffic genuinely splits
+  ≥15% to ≥3 transmitters), buckets every other route into متابعة تامة/قاصرة/شاهد,
+  and issues a plain verdict (strong/medium/تفرّد). Corpus-wide by design.
+  Verified on «إنما الأعمال»: madār يحيى بن سعيد → 11 متابعات تامة, 21 شواهد.
+  Reached from every meaning and hadith page.
+- **v1.4.1** — real app/installer icon + OG social card from the mihrab-arch mark.
 - **v1.4.0** — visual identity overhaul: warm «مشكاة» manuscript palette (paper
   #f7f4ee / brown-ink #241f18 / emerald #0b6e56 / gold #a97e2f), Amiri for ALL
   headings + brand, a real logo mark (pointed mihrab arch enclosing converging

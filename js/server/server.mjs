@@ -597,6 +597,128 @@ const routes = {
     };
   },
 
+  // لوحة الاعتبار — group-level i'tibar workbench. Corpus-wide by design:
+  // corroboration must weigh ALL routes, not just the selected books. Picks a
+  // subject narrator (default: the madār) and buckets every OTHER route into
+  // متابعة تامة / قاصرة / شاهد relative to him, then issues a verdict.
+  "GET /api/group/:id/board": async (u, id) => {
+    const groupId = Number(id);
+    const rows = q.groupChains.all(groupId);
+    if (!rows.length) return { available: false };
+
+    // reconstruct each route in transmission order ([0] = Companion)
+    const byS = new Map();
+    for (const r of rows) {
+      const c = byS.get(r.sanad_id)
+        ?? { hadithId: r.hadith_id, grade: r.grade, bookId: r.book_id, rows: [] };
+      c.rows.push(r); byS.set(r.sanad_id, c);
+    }
+    const seqs = [...byS.entries()].map(([sid, c]) => ({ sid, ...c, seq: [...c.rows].reverse() }))
+      .filter((s) => s.seq.length >= 2);
+    if (!seqs.length) return { available: false };
+
+    // dominant Companion, then the madār among his routes (the pivot most routes
+    // pass through, preferring the one closest to the Companion)
+    const compCount = new Map();
+    for (const s of seqs) compCount.set(s.seq[0].rawi_id, (compCount.get(s.seq[0].rawi_id) ?? 0) + 1);
+    const domComp = [...compCount].sort((a, b) => b[1] - a[1])[0][0];
+    // madār = the common link: the highest-traffic narrator who actually BRANCHES
+    // (fans out to ≥2 students). Route-count alone would pick a single-thread
+    // narrator nearer the Companion; the classical madār is the fan-out point.
+    const fan = new Map();      // rawiId → { students:Map(id→routes), routes, minI }
+    for (const s of seqs) {
+      if (s.seq[0].rawi_id !== domComp) continue;
+      s.seq.forEach((x, i) => {
+        if (i === 0) return;
+        const f = fan.get(x.rawi_id) ?? { students: new Map(), routes: 0, minI: 99 };
+        f.routes++; f.minI = Math.min(f.minI, i);
+        const nx = s.seq[i + 1];
+        if (nx) f.students.set(nx.rawi_id, (f.students.get(nx.rawi_id) ?? 0) + 1);
+        fan.set(x.rawi_id, f);
+      });
+    }
+    // Juynboll's common link: the narrator CLOSEST to the Companion whose traffic
+    // genuinely SPLITS. "Substantial" fan = ≥3 transmitters AND a real share of
+    // routes going off the single main student (≥15%), so an abbreviated single
+    // strand with a stray variant (e.g. محمد بن إبراهيم → يحيى, 11/334) is not
+    // mistaken for the fan-out — the real madār (يحيى, 271/324) is.
+    const split = (f) => f.routes - Math.max(0, ...f.students.values());
+    const substantial = ([, f]) => f.students.size >= 3 && split(f) >= Math.max(3, f.routes * 0.15);
+    const madarId = ([...fan].filter(substantial).sort((a, b) => a[1].minI - b[1].minI || split(b[1]) - split(a[1]))[0]
+      || [...fan].filter(([, f]) => f.students.size >= 2).sort((a, b) => a[1].minI - b[1].minI)[0]
+      || [...fan].sort((a, b) => a[1].minI - b[1].minI)[0])?.[0];
+    const S = domComp;
+    const R = Number(u.searchParams.get("rawi")) || madarId;
+
+    // reference route: the longest route of the dominant Companion that passes
+    // through R — it fixes R's shaykh and the ancestors above him
+    const refSeq = seqs.filter((s) => s.seq[0].rawi_id === S && s.seq.some((x) => x.rawi_id === R))
+      .sort((a, b) => b.seq.length - a.seq.length)[0]?.seq;
+    if (!refSeq) return { available: false };
+    const rIdx = Math.max(1, refSeq.findIndex((x) => x.rawi_id === R));
+    const Rn = refSeq[rIdx];
+    const Sh = refSeq[rIdx - 1];                               // R's shaykh (toward the Companion)
+    const aboveSh = new Set(refSeq.slice(0, rIdx - 1).map((x) => x.rawi_id));
+
+    const tamma = [], qasira = [], shawahid = [];
+    for (const s of seqs) {
+      if (s.seq.some((x) => x.rawi_id === R) && s.seq[0].rawi_id === S) {
+        // a route through R itself is not a "follow-up"; skip unless it diverges below Sh
+        const shPos = s.seq.findIndex((x) => x.rawi_id === Sh.rawi_id);
+        const below = shPos >= 0 ? s.seq[shPos + 1] : null;
+        if (!below || below.rawi_id === R) continue;
+      }
+      const comp = s.seq[0].rawi_id;
+      const base = { hadithId: s.hadithId, bookId: s.bookId, grade: s.grade };
+      if (comp !== S) { shawahid.push(base); continue; }        // another Companion → witness
+      const shPos = s.seq.findIndex((x) => x.rawi_id === Sh.rawi_id);
+      if (shPos >= 0) {
+        const below = s.seq[shPos + 1];
+        if (below && below.rawi_id !== R) { tamma.push({ ...base, via: below.nickname, viaId: below.rawi_id }); continue; }
+        if (below && below.rawi_id === R) continue;
+      }
+      if (s.seq.some((x) => aboveSh.has(x.rawi_id))) qasira.push(base);
+      else qasira.push({ ...base, note: "يلتقيان عند الصحابي" });
+    }
+
+    const ids = [...new Set([...tamma, ...qasira, ...shawahid].map((x) => x.hadithId))];
+    const byH = new Map((await byIds(ids)).map((d) => [d.hadithId, d]));
+    const enrich = (arr) => {
+      const seen = new Set(), out = [];
+      for (const x of arr) {
+        if (seen.has(x.hadithId)) continue;
+        seen.add(x.hadithId);
+        const d = byH.get(x.hadithId);
+        out.push({ hadithId: x.hadithId, book: bookName.get(x.bookId), noInBook: d?.noInBook,
+                   taraf: d?.taraf, hukm: d?.hukm ?? x.grade, via: x.via, note: x.note });
+      }
+      return out.slice(0, 80);
+    };
+    const c = { tamma: tamma.length, qasira: qasira.length, shawahid: shawahid.length };
+    const verdict = c.tamma > 0
+      ? { level: "strong", text: `تُوبِع ${Rn.nickname} متابعةً تامّةً (${c.tamma}) — روى عن شيخه غيرُه، فالمدار غيرُ متفرِّد.` }
+      : (c.qasira + c.shawahid > 0)
+        ? { level: "medium", text: `لم يُتابَع ${Rn.nickname} متابعةً تامّة، لكن يعضده ${c.qasira} متابعة قاصرة و${c.shawahid} شاهد.` }
+        : { level: "alone", text: `تفرَّد ${Rn.nickname} بهذا الوجه عن شيخه — لا متابِع ولا شاهد في الكتب.` };
+
+    return {
+      available: true, groupId,
+      companion: { rawiId: S, name: refSeq[0].nickname },
+      focus: { rawiId: Rn.rawi_id, name: Rn.nickname, rank: Rn.rank },
+      shaykh: { rawiId: Sh.rawi_id, name: Sh.nickname },
+      madarId,
+      totalRoutes: seqs.length,
+      // offer only the elite narrators as subjects (Companion → madār → a level
+      // below), not the deep book-collectors that fill out a single route
+      candidates: refSeq.slice(0, Math.max(5, Math.max(
+        refSeq.findIndex((x) => x.rawi_id === madarId), rIdx) + 2))
+        .map((x, i) => ({ rawiId: x.rawi_id, name: x.nickname, rank: x.rank,
+          isFocus: x.rawi_id === R, isCompanion: i === 0, isMadar: x.rawi_id === madarId })),
+      tamma: enrich(tamma), qasira: enrich(qasira), shawahid: enrich(shawahid),
+      counts: c, verdict,
+    };
+  },
+
   // فحص الاتصال الزمني — audit each adjacent link of the chain for a hidden
   // break: a large generation (tabaqa) jump means narrators were likely dropped;
   // a death-year gap corroborates. Every narrator has a tabaqa, so coverage is full.

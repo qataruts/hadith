@@ -63,8 +63,13 @@ export async function hadithPage({ args: [id], render }) {
   </div>` : ""}
 
   ${h.groupId ? `<div class="card no-print" id="itibar-host" data-hid="${h.hadithId}">
-    <h3 style="margin:0">الاعتبار — المتابعات والشواهد</h3>
-    <p class="muted" style="margin:6px 0 0">جمعُ طرق الحديث لمعرفة هل تُوبِع راويه أو شُهد لحديثه — وهو أصل التقوية بكثرة الطرق.</p>
+    <div class="spread" style="align-items:flex-start">
+      <div>
+        <h3 style="margin:0">الاعتبار — المتابعات والشواهد</h3>
+        <p class="muted" style="margin:6px 0 0">جمعُ طرق الحديث لمعرفة هل تُوبِع راويه أو شُهد لحديثه — وهو أصل التقوية بكثرة الطرق.</p>
+      </div>
+      <a class="btn" href="#/board/${h.groupId}" style="flex:none">لوحة الاعتبار الكاملة ←</a>
+    </div>
     <div id="itibar-body" style="margin-top:12px"></div>
   </div>` : ""}
 
