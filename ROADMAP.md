@@ -32,6 +32,14 @@ installers + public Docker image).
   self-contained SVG (no tiles) placing cities by lat/lng, sized by narrator
   count, with weighted directional flow arcs from death_place/iqama.
 
+- **v1.14.0** — **تحقّق حواري** (multi-turn follow-ups within تحقّق): after a claim
+  is checked, follow-up *questions* about it are answered from that hadith's audit
+  bundle instead of a broken re-search. The compose endpoint detects a follow-up
+  (question-like vs a pasted narration), carries the subject + history, and feeds
+  the model the subject's hadith_audit as facts — same guardrails, same «قراءةٌ من
+  الموسوعة لا فتوى». Verified: «من غشنا» → صحيح مسلم + full route spread, then
+  «ولماذا اختلفت درجات طرقه؟» → answered from the bundle (اختلاط/متابعات), no
+  re-check. streamGemini now takes a multi-turn contents array.
 - **v1.13.0** — **نبراس في المحادثة** (compose folded into chat as a mode): the
   chat now has an explicit toggle «محادثة بحثية | تحقّق من حديث». محادثة = the
   existing RAG Q&A (/api/chat); تحقّق = paste a claim → claim_check + streamed

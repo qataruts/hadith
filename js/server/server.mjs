@@ -516,8 +516,10 @@ async function chatHandler(req, res, body) {
   res.end();
 }
 
-// Stream a Gemini completion for a fixed system + single user turn (SSE deltas).
-async function streamGemini(res, system, userText, { temperature = 0.2 } = {}) {
+// Stream a Gemini completion for a system + contents array (SSE deltas). A
+// single user turn is just [{role:"user",parts:[{text}]}].
+async function streamGemini(res, system, contents, { temperature = 0.2 } = {}) {
+  if (typeof contents === "string") contents = [{ role: "user", parts: [{ text: contents }] }];
   const send = (o) => res.write(`data: ${JSON.stringify(o)}\n\n`);
   const ac = new AbortController();
   res.on("close", () => ac.abort());
@@ -528,7 +530,7 @@ async function streamGemini(res, system, userText, { temperature = 0.2 } = {}) {
       { method: "POST", headers: { "content-type": "application/json" }, signal: ac.signal,
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: system }] },
-          contents: [{ role: "user", parts: [{ text: userText }] }],
+          contents,
           generationConfig: { temperature, maxOutputTokens: 1024 },
         }) });
   } catch (e) { if (ac.signal.aborted) return; throw e; }
@@ -559,30 +561,66 @@ async function streamGemini(res, system, userText, { temperature = 0.2 } = {}) {
   res.end();
 }
 
-// نبراس · compose a readable verdict from claim_check FACTS (never raw text).
+const LV_AR = ["صحيح", "حسن", "ضعيف", "شديد الضعف", "متهم بالوضع", "موضوع"];
+// a message is a follow-up (about the current subject) not a new claim if it
+// reads as a question rather than a pasted narration
+const Q_START = /^(لماذا|ولماذا|لِمَ|ولم|ما\b|وما|مَن|من\b|هل|كيف|أين|متى|كم|أليس|اعرض|بيّن|وضّح|اشرح|هلّا|فسّر|أعطني|قارن)/;
+const looksLikeQuestion = (t) =>
+  Q_START.test(t) || t.endsWith("؟") || t.replace(/\s+/g, " ").split(" ").length <= 5;
+
+function auditToFacts(a) {
+  if (!a) return "لا حقائق متاحة.";
+  return `الحديث محل النقاش: ${a.book ?? ""}${a.noInBook ? ` رقم ${a.noInBook}` : ""}.
+الخلاصة: ${a.headline ?? ""}.
+` + (a.signals ?? []).map((s) => `- ${s.label}: ${s.detail}`).join("\n");
+}
+
+// نبراس · compose. New claim → claim_check + grounded verdict. A follow-up
+// question about the current subject → answered from that hadith's audit bundle.
+// Either way the model is fed only STRUCTURED FACTS, never raw text to judge.
 async function nibrasComposeHandler(req, res, body) {
   const claim = (body.claim ?? "").trim();
-  if (claim.length < 8) throw new Error("claim too short");
-  const chk = await callApi("/api/nibras/check", { q: claim });
+  if (claim.length < 4) throw new Error("claim too short");
+  const history = Array.isArray(body.history) ? body.history.slice(-6) : [];
+  const subject = Number(body.subject) || null;
+  const followup = subject && looksLikeQuestion(claim);
+
   res.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache",
     "Access-Control-Allow-Origin": "*", Connection: "keep-alive",
   });
   const send = (o) => res.write(`data: ${JSON.stringify(o)}\n\n`);
-  send({ type: "check", check: chk });                      // structured result first (needs no key)
+
+  // ── follow-up: answer about the current subject from its audit bundle ──
+  if (followup) {
+    send({ type: "followup", subject });
+    if (!GEMINI_KEY) { send({ type: "nokey" }); send({ type: "done" }); res.end(); return; }
+    const audit = await callApi(`/api/nibras/audit/${subject}`);
+    const factsBlock = auditToFacts(audit);
+    const contents = [
+      ...history.map((m) => ({ role: m.role === "user" ? "user" : "model", parts: [{ text: m.text }] })),
+      { role: "user", parts: [{ text: `الحقائق المسجَّلة عن الحديث محل النقاش:\n${factsBlock}\n\nسؤال المستخدم: ${claim}\n\nأجب عن سؤاله من هذه الحقائق فقط، ولا تخرج عنها ولا تُعِد الحكم.` }] },
+    ];
+    await streamGemini(res, NIBRAS_SYSTEM, contents);
+    return;
+  }
+
+  // ── new claim: check + verdict ──
+  const chk = await callApi("/api/nibras/check", { q: claim });
+  send({ type: "check", check: chk });
+  if (chk && chk.status === "found") send({ type: "subject", id: chk.best.hadithId });
   if (!GEMINI_KEY) { send({ type: "nokey" }); send({ type: "done" }); res.end(); return; }
 
-  const LV = ["صحيح", "حسن", "ضعيف", "شديد الضعف", "متهم بالوضع", "موضوع"];
   let facts;
   if (!chk || chk.status === "not_found" || chk.status === "empty") {
     facts = `الدعوى: «${claim}»\nنتيجة البحث في الموسوعة (٧١٥٧٩٠ حديثاً): لم يُعثر على هذا اللفظ فيها.`;
   } else {
     const g = chk.group;
-    const dist = g ? g.dist.map((x) => `${LV[x.lv] ?? "غير محدَّد"}: ${x.c}`).join("، ") : "";
+    const dist = g ? g.dist.map((x) => `${LV_AR[x.lv] ?? "غير محدَّد"}: ${x.c}`).join("، ") : "";
     facts = `الدعوى: «${claim}»
 نتيجة البحث: ${chk.status === "found" ? "وُجد هذا اللفظ" : "وُجد لفظٌ مقارِب"} (نسبة تطابق ${chk.best.coverage}%).
 أقرب موضع: ${chk.best.book}${chk.best.noInBook ? ` رقم ${chk.best.noInBook}` : ""} — الحكم المسجَّل: ${chk.best.hukm || "غير مذكور"}.
-${g ? `ورد المعنى من ${g.routes} طريقاً، توزيعُ درجاتها: ${dist}. وأقوى درجةٍ في طرقه: ${LV[g.bestLv] ?? "غير محدَّد"}.` : ""}`;
+${g ? `ورد المعنى من ${g.routes} طريقاً، توزيعُ درجاتها: ${dist}. وأقوى درجةٍ في طرقه: ${LV_AR[g.bestLv] ?? "غير محدَّد"}.` : ""}`;
   }
   await streamGemini(res, NIBRAS_SYSTEM, facts);
 }

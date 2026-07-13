@@ -12,6 +12,7 @@ let sources = [];
 let generation = 0;
 let activeCtrl = null;
 let mode = "chat";
+let checkSubject = null;      // current تحقّق subject hadithId → enables follow-ups
 
 const LV = ["صحيح", "حسن", "ضعيف", "شديد الضعف", "متهم بالوضع", "موضوع"];
 const LVCLS = ["grade-sahih", "grade-hasan", "grade-daif", "grade-daif", "grade-mawdu", "grade-mawdu"];
@@ -24,7 +25,7 @@ const introFor = (m) => m === "check"
   : `السلام عليكم — اسألني عن أي حديث أو مسألة حديثية، وسأجيبك من قاعدةٍ تضم ${fmt(715790)} حديثاً مع ذكر المصادر ودرجة كل حديث.${scopeNote()}<br/>مثال: «ما صحة حديث إنما الأعمال بالنيات؟» أو «ما ورد في فضل صلة الرحم؟»`;
 
 export async function chatPage() {
-  history = []; sources = []; generation++; activeCtrl?.abort(); activeCtrl = null; mode = "chat";
+  history = []; sources = []; generation++; activeCtrl?.abort(); activeCtrl = null; mode = "chat"; checkSubject = null;
   return `
   <div class="chat-layout">
     <div class="card chat-main">
@@ -126,8 +127,10 @@ document.addEventListener("page:rendered", () => {
     let answer = "";
 
     if (mode === "check") {
-      nibrasComposeStream(q, {
+      nibrasComposeStream({ claim: q, history: history.slice(-6), subject: checkSubject }, {
         onCheck(chk) { if (gen === generation) renderCheckPanel(chk); },
+        onSubject(id) { if (gen === generation) { checkSubject = id; input.placeholder = "اسأل عن هذا الحديث، أو الصِق حديثاً جديداً…"; } },
+        onFollowup() { /* keep the current subject's source panel */ },
         onDelta(t) { if (gen !== generation) return; answer += t; if (bubble()) bubble().innerHTML = esc(answer).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>"); },
         onNokey() { if (gen === generation && bubble() && !answer) bubble().innerHTML = `<span class="muted">النتيجة المفصَّلة في اللوحة الجانبية. أضِف مفتاح Gemini لقراءةٍ مركَّبة.</span>`; },
         onError(err) { if (gen === generation && bubble()) bubble().innerHTML = keyErrorHtml(err) ?? `<span class="muted">تعذّر التحقّق — ${esc(err)}</span>`; done(); },
