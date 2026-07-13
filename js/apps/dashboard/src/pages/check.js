@@ -45,7 +45,7 @@ function run() {
   const paint = () => {
     prose.style.display = "";
     prose.innerHTML = `<div class="muted" style="font-size:12px;margin-bottom:4px">قراءة نبراس</div>
-      <div style="font-size:16px;line-height:2;white-space:pre-wrap">${esc(text)}</div>`;
+      <div style="font-size:16px;line-height:2;white-space:pre-wrap">${esc(text).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")}</div>`;
   };
   nibrasComposeStream(q, {
     onCheck: (chk) => { struct.innerHTML = render(chk); },

@@ -32,6 +32,14 @@ installers + public Docker image).
   self-contained SVG (no tiles) placing cities by lat/lng, sized by narrator
   count, with weighted directional flow arcs from death_place/iqama.
 
+- **v1.13.0** — **نبراس في المحادثة** (compose folded into chat as a mode): the
+  chat now has an explicit toggle «محادثة بحثية | تحقّق من حديث». محادثة = the
+  existing RAG Q&A (/api/chat); تحقّق = paste a claim → claim_check + streamed
+  grounded verdict (/api/nibras/compose), with the structured matches + grade
+  spread filling the source panel and a link to لوحة الاعتبار. One front door,
+  both registers; a تحقّق result is kept in history so a follow-up in محادثة has
+  context. Markdown bold rendered; the stop button lost its glyph. `#/check`
+  stays as the focused single-purpose page.
 - **v1.12.0** — **نبراس · القراءة المُركَّبة** (the generative layer): حارس الإسناد
   now streams a readable, grounded prose verdict above the structured result.
   Safety by design — the LLM receives ONLY structured FACTS (grade, route
