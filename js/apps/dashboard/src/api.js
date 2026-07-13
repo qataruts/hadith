@@ -53,6 +53,46 @@ export const api = {
   topic: (id) => get(`/topic/${id}`),
 };
 
+/** POST /api/nibras/compose with SSE. Emits the structured check first, then
+ * streams the grounded prose verdict. Degrades (onNokey) if no key on server. */
+export async function nibrasComposeStream(claim, { onCheck, onDelta, onDone, onError, onNokey }, signal) {
+  let ended = false;
+  const finish = (fn, ...a) => { if (!ended) { ended = true; fn?.(...a); } };
+  let res;
+  try {
+    res = await fetch(BASE + "/nibras/compose", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ claim }), signal,
+    });
+  } catch (e) { if (!signal?.aborted) finish(onError, String(e.message ?? e)); return; }
+  if (!res.ok || !res.body) { finish(onError, `HTTP ${res.status}`); return; }
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let carry = "";
+  const handle = (line) => {
+    if (!line.startsWith("data: ")) return;
+    let ev; try { ev = JSON.parse(line.slice(6)); } catch { return; }
+    if (ev.type === "check") onCheck?.(ev.check);
+    else if (ev.type === "delta") onDelta?.(ev.text);
+    else if (ev.type === "nokey") onNokey?.();
+    else if (ev.type === "error") finish(onError, ev.error);
+    else if (ev.type === "done") finish(onDone);
+  };
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      carry += dec.decode(value, { stream: true });
+      const lines = carry.split("\n");
+      carry = lines.pop();
+      for (const line of lines) handle(line);
+    }
+    carry += dec.decode();
+    if (carry) handle(carry);
+  } catch (e) { if (!signal?.aborted) finish(onError, String(e.message ?? e)); return; }
+  finish(onDone);
+}
+
 /** POST /api/chat with SSE streaming. Calls handlers as events arrive. */
 export async function chatStream({ question, history }, { onSources, onDelta, onDone, onError }, signal) {
   let ended = false;

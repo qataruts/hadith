@@ -32,6 +32,16 @@ installers + public Docker image).
   self-contained SVG (no tiles) placing cities by lat/lng, sized by narrator
   count, with weighted directional flow arcs from death_place/iqama.
 
+- **v1.12.0** — **نبراس · القراءة المُركَّبة** (the generative layer): حارس الإسناد
+  now streams a readable, grounded prose verdict above the structured result.
+  Safety by design — the LLM receives ONLY structured FACTS (grade, route
+  distribution, book) from claim_check, never raw text to judge, so it can only
+  phrase what is recorded. Strict system prompt (NIBRAS_SYSTEM): never invent a
+  grade, never say «موضوع/لا أصل له» unless the facts state it, absence = coverage,
+  always ends «قراءةٌ من الموسوعة لا فتوى». Passed an adversarial eval (fabricated/
+  popular-weak/nonsense → coverage, never a fabrication verdict; real → graded +
+  cited). Degrades gracefully without a key (structured result only). New: POST
+  /api/nibras/compose (SSE) + streamGemini helper + nibrasComposeStream client.
 - **v1.11.0** — **نبراس · الخلاصة النقدية للباب** (topic_audit): critique a whole
   موضوع/قضية — the grade distribution across every hadith under a topic subtree
   (lft/rgt nested set), with each sub-branch ranked by its weak share. Backed by

@@ -2,8 +2,10 @@
  * app searches the encyclopedia and returns the matched wording, its book +
  * grade, and whether the MEANING is authenticated by any route. Absence is a
  * coverage statement, never «لا أصل له». It only reports recorded gradings. */
-import { api } from "../api.js";
+import { api, nibrasComposeStream } from "../api.js";
 import { esc, fmt, gradeBadge } from "../util.js";
+
+let streamAbort = null;
 
 const LV = ["صحيح", "حسن", "ضعيف", "شديد الضعف", "متهم بالوضع", "موضوع"];
 const LVCLS = ["grade-sahih", "grade-hasan", "grade-daif", "grade-daif", "grade-mawdu", "grade-mawdu"];
@@ -28,15 +30,35 @@ export async function check() {
     </div>`;
 }
 
-async function run() {
+function run() {
   const q = document.getElementById("check-q").value.trim();
   const box = document.getElementById("check-result");
   if (q.length < 8) { box.innerHTML = `<div class="muted" style="padding:8px">اكتب نصاً أطول للبحث…</div>`; return; }
-  box.innerHTML = `<div class="skeleton" style="height:120px"></div>`;
-  let d;
-  try { d = await api.nibrasCheck(q); }
-  catch { box.innerHTML = `<div class="empty">تعذّر البحث — أعد المحاولة</div>`; return; }
-  box.innerHTML = render(d);
+  streamAbort?.abort();
+  streamAbort = new AbortController();
+  box.innerHTML = `
+    <div id="nibras-prose" class="card verdict-card v-medium" style="display:none"></div>
+    <div id="nibras-struct"><div class="skeleton" style="height:120px"></div></div>`;
+  const prose = box.querySelector("#nibras-prose");
+  const struct = box.querySelector("#nibras-struct");
+  let text = "";
+  const paint = () => {
+    prose.style.display = "";
+    prose.innerHTML = `<div class="muted" style="font-size:12px;margin-bottom:4px">قراءة نبراس</div>
+      <div style="font-size:16px;line-height:2;white-space:pre-wrap">${esc(text)}</div>`;
+  };
+  nibrasComposeStream(q, {
+    onCheck: (chk) => { struct.innerHTML = render(chk); },
+    onDelta: (t) => { text += t; paint(); },
+    onNokey: () => { /* structured result already shown; no composed reading without a key */ },
+    onError: async () => {
+      if (!struct.querySelector(".verdict-card")) {           // structured never arrived → fallback
+        const d = await api.nibrasCheck(q).catch(() => null);
+        struct.innerHTML = d ? render(d) : `<div class="empty">تعذّر البحث</div>`;
+      }
+    },
+    onDone: () => {},
+  }, streamAbort.signal);
 }
 
 function render(d) {
