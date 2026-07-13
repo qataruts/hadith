@@ -34,7 +34,11 @@ const DATASET = "https://huggingface.co/datasets/emadjumaah/hadith-kg/resolve/ma
 const DB_FILES = [
   { name: "hadith-kg.db", url: `${DATASET}/hadith-kg.db`, size: 1_634_877_440 },
   { name: "hadith-app.db", url: `${DATASET}/hadith-app.db`, size: 2_900_860_928 },
+  // optional: the آثار semantic tier (~229 MB). The server finds it beside the KG
+  // db and degrades gracefully if absent, so it never blocks startup.
+  { name: "athar-embedding.db", url: `${DATASET}/athar-embedding.db`, size: 240_058_368, optional: true },
 ];
+const REQUIRED_DBS = DB_FILES.filter((f) => !f.optional);
 
 let win, serverProc, serverPort;
 
@@ -53,7 +57,15 @@ const dbPath = (name) => path.join(DATA_DIR, name);
 const dbReady = (f) => {
   try { return fs.statSync(dbPath(f.name)).size === f.size; } catch { return false; }
 };
-const allDbsReady = () => DB_FILES.every(dbReady);
+const allDbsReady = () => REQUIRED_DBS.every(dbReady);   // start gate: core DBs only
+
+// Best-effort background fetch of optional DBs (the آثار tier). Never blocks
+// startup; takes effect on the next launch if it arrives after the server started.
+async function ensureOptionalDbs() {
+  for (const file of DB_FILES.filter((f) => f.optional && !dbReady(f))) {
+    try { await downloadFile(file, () => {}); } catch { /* graceful — tier is optional */ }
+  }
+}
 
 /** Stream a file from HF with resume (Range + If-Range/ETag) + progress. */
 async function downloadFile(file, onProgress) {
@@ -97,9 +109,9 @@ async function downloadFile(file, onProgress) {
 }
 
 async function provisionDbs(send) {
-  const total = DB_FILES.reduce((s, f) => s + f.size, 0);
+  const total = REQUIRED_DBS.reduce((s, f) => s + f.size, 0);
   // disk-space preflight: what's still missing + 1 GB working margin
-  const missing = DB_FILES.filter((f) => !dbReady(f)).reduce((s, f) => s + f.size, 0);
+  const missing = REQUIRED_DBS.filter((f) => !dbReady(f)).reduce((s, f) => s + f.size, 0);
   try {
     const st = await fsp.statfs(DATA_DIR);
     const free = st.bavail * st.bsize;
@@ -111,7 +123,7 @@ async function provisionDbs(send) {
     /* statfs unsupported → skip preflight */
   }
   let base = 0;
-  for (const file of DB_FILES) {
+  for (const file of REQUIRED_DBS) {
     if (dbReady(file)) { base += file.size; continue; }
     let lastEmit = 0;
     for (let attempt = 1; ; attempt++) {
@@ -247,6 +259,7 @@ async function boot() {
         return;
       }
     }
+    ensureOptionalDbs();                       // best-effort آثار tier (background, never blocks)
     if (serverProc && serverPort) {           // server already running (mac re-activate)
       await win.loadURL(`http://127.0.0.1:${serverPort}`);
       return;

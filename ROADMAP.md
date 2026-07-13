@@ -32,6 +32,14 @@ installers + public Docker image).
   self-contained SVG (no tiles) placing cities by lat/lng, sized by narrator
   count, with weighted directional flow arcs from death_place/iqama.
 
+- **v1.15.0** — **الطبقة الدلالية للآثار** (āثār semantic tier): the 292,293 distinct
+  موقوف/مقطوع taraf are now embedded (gemini-embedding-001, int8-quantized, ~229 MB
+  in a separate `athar-embedding.db`) — the SAME vector space as the marfū' groups,
+  so one query ranks both. Semantic search «بالمعنى» now shows an «آثار الصحابة
+  والتابعين» section (labeled موقوف/مقطوع) beneath the marfū' meanings. New: GET
+  /api/search/athar, loadAthar/semanticAthar (int8 dot-product), embed-athar.mjs
+  (resumable). Desktop: the athar DB is an OPTIONAL best-effort download (never
+  blocks startup; the server degrades gracefully if absent).
 - **v1.14.0** — **تحقّق حواري** (multi-turn follow-ups within تحقّق): after a claim
   is checked, follow-up *questions* about it are answered from that hadith's audit
   bundle instead of a broken re-search. The compose endpoint detects a follow-up

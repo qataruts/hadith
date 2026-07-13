@@ -191,6 +191,45 @@ async function semanticGroups(query, limit) {
   return { hits: order.map((i) => ({ groupId: e.ids[i], score: scores[i] })) };
 }
 
+// ── āثار semantic tier ──────────────────────────────────────────────────────
+// A separate int8 store (athar-embedding.db) in the SAME vector space as the
+// group embeddings (gemini-embedding-001), so the same query vector ranks it.
+const ATHAR_DB = path.join(path.dirname(KG_DB), "athar-embedding.db");
+let atharEmb;   // undefined = not tried, null = none, else { hids, mat:Int8Array }
+function loadAthar() {
+  if (atharEmb !== undefined) return atharEmb;
+  if (!fs.existsSync(ATHAR_DB)) { atharEmb = null; return null; }
+  const adb = new DatabaseSync(ATHAR_DB, { readOnly: true });
+  const rows = adb.prepare("SELECT hid, vec FROM athar_embedding").all();
+  adb.close();
+  if (!rows.length) { atharEmb = null; return null; }
+  const hids = new Int32Array(rows.length);
+  const mat = new Int8Array(rows.length * EMB_DIM);
+  rows.forEach((r, i) => {
+    hids[i] = r.hid;
+    mat.set(new Int8Array(r.vec.buffer, r.vec.byteOffset, EMB_DIM), i * EMB_DIM);
+  });
+  atharEmb = { hids, mat };
+  console.log(`semantic: loaded ${rows.length} athar vectors (int8)`);
+  return atharEmb;
+}
+
+async function semanticAthar(query, limit) {
+  const a = loadAthar();
+  if (!a) return { hits: [] };
+  if (!GEMINI_KEY) return { error: "GEMINI_API_KEY not set on server", hits: null };
+  const qv = await embedQuery(query);                 // normalized float32[768]
+  const n = a.hids.length;
+  const scores = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    let s = 0; const off = i * EMB_DIM;
+    for (let d = 0; d < EMB_DIM; d++) s += a.mat[off + d] * qv[d];
+    scores[i] = s;
+  }
+  const order = [...a.hids.keys()].sort((x, y) => scores[y] - scores[x]).slice(0, limit);
+  return { hits: order.map((i) => ({ hadithId: a.hids[i], score: scores[i] / 127 })) };
+}
+
 const matnOf = (h) =>
   h.matnStart != null ? h.nass.slice(h.matnStart, h.matnEnd) : h.nass;
 
@@ -1467,6 +1506,32 @@ const routes = {
       nass: h.doc.nass, hadithCount: h.doc.hadithCount,
       sahabiCount: h.doc.sahabis.length, bookCount: h.doc.books.length,
     })) };
+  },
+
+  // Semantic search over the آثار tier (mawqūf/maqṭūʿ), labeled أثر. Same vector
+  // space as the marfū' groups, so it complements /api/semantic/groups.
+  "GET /api/search/athar": async (u) => {
+    const qs = (u.searchParams.get("q") ?? "").trim();
+    const limit = clamp(u.searchParams.get("limit"), 15, 40);
+    if (!qs) return { hits: [], available: !!loadAthar() };
+    const scope = parseBookScope(u);
+    const r = await semanticAthar(qs, (scope ? limit * 5 : limit) + 10);
+    if (r.hits == null) return r;                       // key error surfaced to client
+    if (!r.hits.length) return { hits: [], available: !!loadAthar() };
+    const hids = r.hits.map((h) => h.hadithId);
+    const ph = hids.map(() => "?").join(",");
+    const meta = new Map();
+    for (const row of kg.prepare(
+      `SELECT id, taraf_nass taraf, book_id, matn grade, type, no_inbook FROM hadiths WHERE id IN (${ph})`).all(...hids))
+      meta.set(row.id, row);
+    let hits = r.hits.map((h) => {
+      const m = meta.get(h.hadithId);
+      return m ? { hadithId: h.hadithId, score: Math.round(h.score * 1000) / 1000,
+        taraf: m.taraf, book: bookName.get(m.book_id), bookId: m.book_id, noInBook: m.no_inbook,
+        hukm: m.grade, type: m.type } : null;
+    }).filter(Boolean);
+    if (scope) hits = hits.filter((h) => scope.has(h.bookId));
+    return { hits: hits.slice(0, limit), available: true };
   },
 
   // Retrieval context for a RAG chat: semantic + FTS merged at the meaning

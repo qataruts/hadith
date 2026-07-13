@@ -1,9 +1,19 @@
 import { api } from "../api.js";
-import { esc, keyErrorHtml } from "../util.js";
+import { esc, fmt, gradeBadge, keyErrorHtml } from "../util.js";
 import { hadithCard, groupCard, rawiCard } from "../components/cards.js";
 
+const atharCard = (h) => `
+  <a class="card result-card" href="#/hadith/${h.hadithId}">
+    <div class="nass nass-sm">${esc((h.taraf ?? "").slice(0, 170))}</div>
+    <div class="row" style="margin-top:8px;gap:8px;align-items:center;flex-wrap:wrap">
+      <span class="badge">${esc(h.type ?? "")}</span>
+      ${gradeBadge(h.hukm)}
+      <span class="tag-count" style="margin-inline-start:auto">${esc(h.book ?? "")}${h.noInBook ? ` · ${fmt(h.noInBook)}` : ""}</span>
+    </div>
+  </a>`;
+
 const MODES = [
-  ["semantic", "بالمعنى", "يفهم سؤالك ويجد الأحاديث بمعناها ولو اختلف اللفظ"],
+  ["semantic", "بالمعنى", "يفهم سؤالك ويجد الأحاديث والآثار بمعناها ولو اختلف اللفظ"],
   ["text", "باللفظ", "بحث نصي في متون الأحاديث"],
   ["group", "الأطراف", "بحث في نصوص الأطراف (المعاني المجردة)"],
   ["rawi", "الرواة", "بحث في أسماء الرواة وكناهم"],
@@ -31,15 +41,26 @@ export async function search({ params, render }) {
 
   let resultsHtml;
   if (mode === "semantic") {
-    let hits = [], error = null;
-    try { ({ hits, error } = await api.semanticGroups(q, 15)); }
-    catch (e) { error = String(e.message ?? e); }
+    let hits = [], error = null, athar = [];
+    try {
+      const [g, a] = await Promise.all([
+        api.semanticGroups(q, 12),
+        api.searchAthar(q, 10).catch(() => ({ hits: [] })),
+      ]);
+      hits = g.hits ?? []; error = g.error;
+      athar = a.hits ?? [];
+    } catch (e) { error = String(e.message ?? e); }
+    const marfu = hits.length
+      ? `<div class="muted" style="margin-bottom:10px">معانٍ مرفوعة مرتَّبة بالتشابه الدلالي — كل معنى يجمع رواياته من كل الكتب</div>
+         <div class="grid">${hits.map(groupCard).join("")}</div>`
+      : "";
+    const atharHtml = athar.length
+      ? `<div class="sec-title" style="margin-top:24px">آثار الصحابة والتابعين <span class="tag-count">موقوف / مقطوع — بالمعنى</span></div>
+         <div class="grid">${athar.map(atharCard).join("")}</div>`
+      : "";
     resultsHtml = error
       ? `<div class="empty">${keyErrorHtml(error) ?? esc(error)}</div>`
-      : hits.length
-        ? `<div class="muted" style="margin-bottom:10px">معانٍ مرتبة بالتشابه الدلالي — كل معنى يجمع رواياته من كل الكتب</div>
-           <div class="grid">${hits.map(groupCard).join("")}</div>`
-        : `<div class="empty">لا نتائج</div>`;
+      : (hits.length || athar.length) ? marfu + atharHtml : `<div class="empty">لا نتائج</div>`;
   } else if (mode === "text") {
     const { hits } = await api.searchHadiths(q, 30);
     resultsHtml = hits.length
