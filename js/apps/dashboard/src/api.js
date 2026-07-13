@@ -48,6 +48,15 @@ export const api = {
   conflicts: (minGap = 2, offset = 0) => get("/conflicts", { minGap, offset, limit: 40 }),
   nibrasCheck: (q) => get("/nibras/check", { q }),
   nibrasAudit: (id) => get(`/nibras/audit/${id}`),
+  nibrasRetrieve: (q, limit = 12) => get("/nibras/retrieve", { q, limit }),
+  nibrasPlan: async (messages, material) => {
+    const res = await fetch(BASE + "/nibras/plan", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ messages, material }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  },
   nibrasTopicAudit: (id) => get(`/nibras/topic-audit/${id}`),
   quiz: () => get("/quiz"),
   topics: (parent) => get("/topics", parent ? { parent } : {}),
@@ -56,14 +65,14 @@ export const api = {
 
 /** POST /api/nibras/compose with SSE. Emits the structured check first, then
  * streams the grounded prose verdict. Degrades (onNokey) if no key on server. */
-export async function nibrasComposeStream({ claim, history, subject }, { onCheck, onSubject, onFollowup, onDelta, onDone, onError, onNokey }, signal) {
+export async function nibrasComposeStream(payload, { onCheck, onSubject, onFollowup, onDelta, onDone, onError, onNokey }, signal) {
   let ended = false;
   const finish = (fn, ...a) => { if (!ended) { ended = true; fn?.(...a); } };
   let res;
   try {
     res = await fetch(BASE + "/nibras/compose", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ claim, history, subject }), signal,
+      body: JSON.stringify(payload), signal,           // {claim,history,subject} OR {task,subject,length,ahadith,instruction,previous}
     });
   } catch (e) { if (!signal?.aborted) finish(onError, String(e.message ?? e)); return; }
   if (!res.ok || !res.body) { finish(onError, `HTTP ${res.status}`); return; }

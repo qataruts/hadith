@@ -22,7 +22,7 @@ export async function home() {
       <button class="chip active" data-mode="semantic">بالمعنى</button>
       <button class="chip" data-mode="text">باللفظ</button>
       <button class="chip" data-mode="rawi">عن راوٍ</button>
-      <a class="chip" href="#/chat">${icon.chat({ size: 15 })} اسأل سؤالاً بحثياً</a>
+      <a class="chip" href="#/nibras">${icon.chat({ size: 15 })} نِبراس — اسأل واجمع واكتب</a>
     </div>
   </div>
 

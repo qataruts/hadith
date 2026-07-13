@@ -19,6 +19,7 @@ import { icma } from "./pages/icma.js";
 import { conflicts } from "./pages/conflicts.js";
 import { check } from "./pages/check.js";
 import { chatPage } from "./pages/chat.js";
+import { nibras } from "./pages/nibras.js";
 
 const routes = [
   [/^\/?$/, home, "الرئيسية"],
@@ -37,6 +38,7 @@ const routes = [
   [/^\/conflicts/, conflicts, "تعارض الأحكام"],
   [/^\/check/, check, "حارس الإسناد"],
   [/^\/quiz/, quiz, "احكم على السند"],
+  [/^\/nibras/, nibras, "نِبراس"],
   [/^\/chat/, chatPage, "المحادثة البحثية"],
 ];
 
@@ -50,7 +52,7 @@ const NAV = [
   ["#/quiz", "احكم على السند"],
   ["#/books", "الكتب"],
   ["#/alems", "النقّاد"],
-  ["#/chat", "المحادثة البحثية"],
+  ["#/nibras", "نِبراس"],
 ];
 
 const app = document.getElementById("app");

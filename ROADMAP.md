@@ -32,6 +32,25 @@ installers + public Docker image).
   self-contained SVG (no tiles) placing cities by lat/lng, sized by narrator
   count, with weighted directional flow arcs from death_place/iqama.
 
+- **v1.16.0** — **نِبراس — المساعدُ الحواريّ الموحَّد** (the unified conversational
+  assistant): نبراس graduates from scattered modes into ONE research companion at
+  `#/nibras`, in the image of the Quran «مشكاة» نبراس. Multi-chat (localStorage,
+  newest 40), and each chat accumulates its own «مادّة» — the deduped union of
+  every hadith its turns gathered — which composition draws on and nothing else.
+  Each turn is routed by a **planner** (structured Gemini call, PLAN_SCHEMA):
+  search_meaning · check · compose · search_compose · none — one planner call +
+  one compose call + one embedding per turn. Retrieval embeds the query ONCE and
+  ranks BOTH tiers (marfū' groups + the 292K آثار) in the same vector space, then
+  gates each tier separately (top-band + floor) so the primary and the آثار are
+  both represented, with a grade boost `(2.5−lv)·0.02` surfacing صحيح/حسن first.
+  Composition writes in a chosen **register** — خطبة (منبري) · منشور · محاضرة ·
+  تلخيص × قصير/متوسّط/مطوّل — grounded strictly in the chat's material, citing
+  [رواه البخاري · صحيح], ending «قراءةٌ من الموسوعة لا فتوى». Full UI/UX ported:
+  hero empty-state with example prompts, chat list, graded source cards (each
+  linking to its hadith), streamed gold draft block, auto-growing composer. New:
+  POST /api/nibras/plan (geminiJson + PLAN_SCHEMA), GET /api/nibras/retrieve
+  (dual-tier gated), nibras-store.js + pages/nibras.js. Nav + home now open نبراس;
+  `#/chat` and `#/check` remain as focused single-purpose pages.
 - **v1.15.0** — **الطبقة الدلالية للآثار** (āثār semantic tier): the 292,293 distinct
   موقوف/مقطوع taraf are now embedded (gemini-embedding-001, int8-quantized, ~229 MB
   in a separate `athar-embedding.db`) — the SAME vector space as the marfū' groups,

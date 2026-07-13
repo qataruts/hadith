@@ -175,11 +175,11 @@ async function embedQuery(text) {
   return v.map((x) => x / norm);
 }
 
-async function semanticGroups(query, limit) {
+async function semanticGroups(query, limit, qvIn) {
   const e = loadEmbeddings();
   if (!e) return { error: "no embeddings — run embed-groups.mjs", hits: null };
   if (!GEMINI_KEY) return { error: "GEMINI_API_KEY not set on server", hits: null };
-  const qv = await embedQuery(query);
+  const qv = qvIn ?? await embedQuery(query);
   const scores = new Float32Array(e.ids.length);
   for (let i = 0; i < e.ids.length; i++) {
     let s = 0;
@@ -214,11 +214,11 @@ function loadAthar() {
   return atharEmb;
 }
 
-async function semanticAthar(query, limit) {
+async function semanticAthar(query, limit, qvIn) {
   const a = loadAthar();
   if (!a) return { hits: [] };
   if (!GEMINI_KEY) return { error: "GEMINI_API_KEY not set on server", hits: null };
-  const qv = await embedQuery(query);                 // normalized float32[768]
+  const qv = qvIn ?? await embedQuery(query);          // normalized float32[768]
   const n = a.hids.length;
   const scores = new Float32Array(n);
   for (let i = 0; i < n; i++) {
@@ -461,6 +461,64 @@ const NIBRAS_SYSTEM = `أنت «نبراس»، تعرض ما هو مُسجَّل
 - اختم دائماً بجملة: «وهذه قراءةٌ من الموسوعة لا فتوى.»
 - كن موجزاً (من ثلاثة إلى ستة أسطر)، بلا إطناب ولا عناوين ولا رموز تنسيق (كالنجوم).`;
 
+// نبراس · planner — one cheap structured call that ROUTES the turn. It returns a
+// short reply + ONE action; the actual retrieval runs afterward. Ported from the
+// Quran «نِبراس» planner, adapted to the hadith corpus.
+const PLAN_SCHEMA = {
+  type: "object",
+  properties: {
+    reply: { type: "string" },
+    action: { type: "string", enum: ["search_meaning", "check", "compose", "search_compose", "none"] },
+    query: { type: "string" },
+    task: { type: "string", enum: ["khutba", "post", "lecture", "summary"] },
+    subject: { type: "string" },
+    length: { type: "string", enum: ["short", "medium", "long"] },
+  },
+  required: ["reply", "action"],
+};
+const nibrasPlanSystem = (materialText) => `أنت «نِبراس» في تطبيق «الجامع»: مساعدُ بحثٍ في الحديث الشريف للباحثين والطلاب والخطباء. تجمعُ من موسوعة الحديث (٧١٥ ألف حديثٍ بأسانيدها ودرجاتها، ومعها آثارُ الصحابةِ والتابعين) وترتّبها، ثمّ تُعينُ على التحقّقِ والكتابةِ منها. لا تُصدِرُ حكماً من عندك؛ الدرجاتُ منقولةٌ كما دُوِّنت.
+
+اختر إجراءً واحداً (action):
+- search_meaning: ابحثْ عن أحاديثَ وآثارٍ بالمعنى. اجعلْ query جملةً وصفيّةً غنيّةً توسّعُ المعنى المطلوبَ بمرادفاتِه ومعانيه القريبة (لا كلمةً مجرّدة)، فكلّما دقَّ الوصفُ وشَمَلَ كانتِ النتائجُ أنسب. هذا أكثرُها استعمالاً.
+- check: حين يُلصِقُ المستخدمُ حديثاً أو دعوى متداولةً ويسألُ عن صحّتها أو مصدرها أو درجتها — ضعْ نصَّ الحديثِ كما هو في query.
+- compose: حين يطلبُ صياغةً ممّا جُمِعَ سابقاً — املأْ task وsubject وlength. حدِّدْ task: «مقال/منشور/موضوع»→post، «خطبة/جمعة»→khutba، «محاضرة/درس»→lecture، «تلخيص/خلاصة»→summary. length=long للخطبةِ والمحاضرةِ والمقالِ المطوّل، وmedium للمنشورِ القصير، إلّا أن يطلبَ غيرَ ذلك صراحةً. وإن طلبَ توسيعَ المسوّدةِ السابقةِ أو تنقيحَها فاختَرْ compose أيضاً (سيُبنى على المسوّدة السابقة).
+- search_compose: حين يطلبُ في رسالةٍ واحدةٍ أن تجمعَ أحاديثَ في موضوعٍ ثمّ تكتبَ منها — املأْ query (وصفاً غنيّاً كما في search_meaning) وtask وsubject وlength. آثِرْ هذا كلّما ذُكِرَ الجمعُ والكتابةُ معاً.
+- none: حين تُجيبُ من المادّةِ الحاضرةِ أو يكونُ الكلامُ عامّاً؛ ضعِ الجوابَ في reply.
+
+القيود: اعتمِدْ على أحاديثِ الموسوعةِ وآثارِها فقط، ولا تخترعْ حديثاً ولا إسناداً، ولا تُصحّحْ ضعيفاً ولا تحكمْ بوضعٍ إلّا بما دُوِّن، ولا تُفتِ. والغيابُ عن الموسوعةِ بيانُ تغطيةٍ لا حكمٌ بعدمِ الوجود.
+
+reply: جملةٌ عربيّةٌ قصيرةٌ تُعرَضُ للمستخدم (البياناتُ ستُعرَضُ تحتها تلقائيّاً فلا تُكرّرها). عند compose اجعلْ reply تمهيداً لطيفاً («إليك مسوّدةً تبني عليها…»).
+
+المادّةُ الحاضرةُ في هذه المحادثة:
+${materialText}`;
+
+// نبراس · compose registers (خطبة/منشور/محاضرة/تلخيص) + length → tokens
+const NIBRAS_TASK = {
+  khutba: "خطبةً منبريّةً كاملةً بأسلوبِ الخطابةِ ومخاطبةِ الحاضرين (كنداءِ «عبادَ الله») تبدأُ بحمدِ اللهِ والثناءِ عليه: افتتاحٌ يُمهّد، ثمّ محاورُ تُبنى على الأحاديثِ ويُستشهَدُ فيها بها نصّاً مع وقفاتٍ وعبرٍ، ثمّ خاتمةٌ جامعةٌ ووصايا ودعاء.",
+  post: "مقالاً مكتوباً متماسكاً بأسلوبِ المقالةِ لا الخطبةِ المنبريّة — بلا نداءٍ («أيّها…») وبلا افتتاحِ خطبةٍ أو دعاءِ ختام: مقدّمةٌ تجذبُ القارئ، ثمّ محاورُ نثريّةٌ تجمعُ الأحاديثَ وتربطُ بينها، ثمّ خاتمةٌ عمليّة.",
+  lecture: "محاضرةً تعليميّةً بمحاورَ معنونةٍ بأسلوبٍ شارحٍ يُخاطبُ المتعلّم: تمهيدٌ يبيّنُ أهمّيةَ الموضوع، ثمّ محاورُ مفصّلةٌ مبنيّةٌ على الأحاديثِ مع الاستشهادِ بها وبيانِ درجاتها وأمثلةٍ تطبيقيّة، فخلاصةٌ ونقاطُ مراجعة.",
+  summary: "تلخيصاً واضحاً منظّماً في محاورَ ونقاطٍ مركّزةٍ مستنداً إلى الأحاديثِ المعطاةِ مع الإشارةِ إلى مصادرها ودرجاتها — بلا أسلوبِ خطبةٍ ولا وعظ.",
+};
+const NIBRAS_LEN = {
+  short: { g: "نصٌّ موجز: فِقَرٌ قليلةٌ بمقدّمةٍ وخاتمة", max: 1500 },
+  medium: { g: "نصٌّ متوسّط: عدّةُ محاورَ بمقدّمةٍ وعرضٍ وخاتمةٍ عمليّة", max: 2800 },
+  long: { g: "نصٌّ مبسوطٌ: محاورُ متعدّدةٌ معنونةٌ ووقفاتٌ وتطبيقاتٌ عمليّةٌ بمقدّمةٍ وخاتمةٍ وافيتين", max: 4096 },
+};
+const nibrasComposeSystem = (lenSpec, hasWeak) => `أنت «نِبراس» في تطبيق «الجامع»: كاتبٌ بليغٌ يُعينُ الباحثَ والخطيبَ والمعلّم، فيصوغُ من مادّةٍ حديثيّةٍ محسوبةٍ تُعطى لك نصّاً عاليَ الجودةِ قائماً بذاته. لك الحرّيّةُ في البناءِ والنظر، والانضباطُ في المصدر.
+
+مصدرُك وحدَه: أحاديثُ وآثارٌ من الموسوعةِ بدرجاتها المسجّلة.
+
+جوِّدِ المخرَجَ بأن:
+- تستشهِدَ بالأحاديثِ المعطاةِ نصّاً داخل الكلام، وتذكرَ مصدرَها ودرجتَها هكذا [رواه البخاري · صحيح]، موظَّفةً في موضعها لا محشوّةً.
+- تُقدّمَ الصحيحَ والحسنَ في الاحتجاج، وتتجنّبَ البناءَ على الضعيف؛ وإن ذكرتَه فبيّنْ ضعفَه.
+- تُخاطِبَ القارئَ بأسلوبٍ حيٍّ بليغ، وتُنزّلَ المعانيَ على واقعِه بأمثلةٍ عمليّة، وتختمَ بما ينفعُه.
+
+وانضبِطْ بأن:
+- لا تخترعَ حديثاً ولا إسناداً، ولا تنسبَ لفظاً لم يُعطَ لك، ولا تُصحّحَ ضعيفاً ولا تحكمَ بوضعٍ إلّا بما دُوِّن، ولا تُفتِ ولا تُدخِلَ حكماً فقهيّاً.
+- تلتزمَ السجلَّ المطلوبَ تماماً: المقالُ نثرٌ للقارئ (بلا نداءٍ منبريّ)، والخطبةُ خطابٌ للحاضرين تبدأُ بالحمد، والمحاضرةُ شرحٌ للمتعلّم، والتلخيصُ نقاطٌ منظّمة.
+
+هذه مسوّدةٌ يبني عليها الباحثُ ويراجعها، ليست فتوى ولا تصحيحاً معتمَداً. ابدأْ مباشرةً بالنصّ بلا تصديرٍ عن نفسك. الطولُ والبناء: ${lenSpec.g}. واختمْ بجملةٍ لطيفةٍ تُبيّنُ أنّها «قراءةٌ من الموسوعة لا فتوى».${hasWeak ? "\nملحوظة: في المادّة أحاديثُ ضعيفةٌ — لا تبنِ عليها حكماً، ونبّهْ على ضعفِها إن استعملتَها." : ""}`;
+
 async function chatHandler(req, res, body) {
   const { question, history = [], books } = body;
   if (!question?.trim()) throw new Error("question is required");
@@ -557,7 +615,7 @@ async function chatHandler(req, res, body) {
 
 // Stream a Gemini completion for a system + contents array (SSE deltas). A
 // single user turn is just [{role:"user",parts:[{text}]}].
-async function streamGemini(res, system, contents, { temperature = 0.2 } = {}) {
+async function streamGemini(res, system, contents, { temperature = 0.2, maxOutputTokens = 1024, thinkingBudget } = {}) {
   if (typeof contents === "string") contents = [{ role: "user", parts: [{ text: contents }] }];
   const send = (o) => res.write(`data: ${JSON.stringify(o)}\n\n`);
   const ac = new AbortController();
@@ -570,7 +628,8 @@ async function streamGemini(res, system, contents, { temperature = 0.2 } = {}) {
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: system }] },
           contents,
-          generationConfig: { temperature, maxOutputTokens: 1024 },
+          generationConfig: { temperature, maxOutputTokens,
+            ...(thinkingBudget != null ? { thinkingConfig: { thinkingBudget } } : {}) },
         }) });
   } catch (e) { if (ac.signal.aborted) return; throw e; }
   if (!upstream.ok) { send({ type: "error", error: `gemini: HTTP ${upstream.status}` }); res.end(); return; }
@@ -600,6 +659,82 @@ async function streamGemini(res, system, contents, { temperature = 0.2 } = {}) {
   res.end();
 }
 
+// One non-streaming Gemini call returning parsed JSON (for the planner).
+async function geminiJson(system, contents, schema, { model = CHAT_MODEL, maxOutputTokens = 500 } = {}) {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
+    { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] }, contents,
+        generationConfig: { temperature: 0.3, maxOutputTokens,
+          thinkingConfig: { thinkingBudget: 0 },
+          responseMimeType: "application/json", responseSchema: schema },
+      }) });
+  if (!res.ok) throw new Error(`gemini: HTTP ${res.status}`);
+  const raw = (await res.json()).candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+  try { return JSON.parse(raw); } catch { return { reply: raw.slice(0, 400) || "…", action: "none" }; }
+}
+
+// نبراس · gated meaning retrieval — one query embedding ranks BOTH tiers (marfū'
+// groups + آثār), merged and trimmed by the Quran «نِبراس» gate so a draft rests
+// on hadith that genuinely cohere. Returns unified material (matn + book + grade).
+async function retrieveNibras(query, { limit = 12 } = {}) {
+  if (!GEMINI_KEY) return { error: "GEMINI_API_KEY not set on server", hits: null };
+  let qv;
+  try { qv = await embedQuery(query); } catch (e) { return { error: String(e.message ?? e), hits: null }; }
+  const [g, a] = await Promise.all([
+    semanticGroups(query, 24, qv).catch(() => ({ hits: [] })),
+    semanticAthar(query, 24, qv).catch(() => ({ hits: [] })),
+  ]);
+  const marfu = [];
+  for (const h of g.hits ?? []) {                       // group → its strongest narration (real grade)
+    const rep = kg.prepare(
+      `SELECT id, taraf_nass taraf, book_id, matn grade, matn_no lv, no_inbook FROM hadiths
+       WHERE group_id = ? AND taraf_nass IS NOT NULL ORDER BY matn_no LIMIT 1`).get(h.groupId);
+    // gently prefer the authentic within the semantic matches: صحيح +0.05 … موضوع −0.05
+    const gradeBoost = rep && rep.lv >= 0 ? (2.5 - rep.lv) * 0.02 : 0;
+    if (rep?.taraf) marfu.push({ score: h.score + gradeBoost, hadithId: rep.id, groupId: h.groupId, kind: "مرفوع",
+      matn: rep.taraf, book: bookName.get(rep.book_id), noInBook: rep.no_inbook, hukm: rep.grade });
+  }
+  const athar = [];
+  for (const h of a.hits ?? []) {                        // آثار carry no صحيح/ضعيف grade (matn = the type)
+    const rep = kg.prepare(
+      `SELECT taraf_nass taraf, book_id, no_inbook, type FROM hadiths WHERE id = ?`).get(h.hadithId);
+    if (rep?.taraf) athar.push({ score: h.score, hadithId: h.hadithId, kind: rep.type ?? "أثر",
+      matn: rep.taraf, book: bookName.get(rep.book_id), noInBook: rep.no_inbook, hukm: null });
+  }
+  // gate each tier on its own top, so marfū' (primary) and آثār (supplementary) are both kept
+  const gate = (arr, keep) => {
+    if (!arr.length) return [];
+    arr.sort((x, y) => y.score - x.score);
+    const top = arr[0].score;
+    const g2 = arr.filter((i) => i.score >= top - 0.15 && i.score >= 0.5);
+    return (g2.length >= 3 ? g2 : arr.slice(0, 4)).slice(0, keep);
+  };
+  const seen = new Set(), out = [];
+  for (const i of [...gate(marfu, 8), ...gate(athar, 6)]) {
+    if (seen.has(i.hadithId)) continue; seen.add(i.hadithId); out.push(i);
+    if (out.length >= limit) break;
+  }
+  return { hits: out };
+}
+
+// نبراس · planner — routes one turn. Body: { messages, material }.
+async function nibrasPlanHandler(req, res, body) {
+  if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY not set on server");
+  const messages = (Array.isArray(body.messages) ? body.messages : []).slice(-10);
+  const material = body.material ?? {};
+  const ah = (material.ahadith ?? []).slice(0, 14);
+  const materialText = ah.length
+    ? "الأحاديثُ المجموعة: " + ah.map((a) => `[${(a.ref ?? "").slice(0, 22)}] ${(a.matn ?? "").slice(0, 90)}`).join(" · ")
+    : "لا شيءَ بعد.";
+  const contents = messages.map((m) => ({
+    role: m.role === "assistant" ? "model" : "user", parts: [{ text: (m.text ?? "").slice(0, 1500) }] }));
+  const plan = await geminiJson(nibrasPlanSystem(materialText), contents, PLAN_SCHEMA);
+  res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*" });
+  res.end(JSON.stringify(plan));
+}
+
 const LV_AR = ["صحيح", "حسن", "ضعيف", "شديد الضعف", "متهم بالوضع", "موضوع"];
 // a message is a follow-up (about the current subject) not a new claim if it
 // reads as a question rather than a pasted narration
@@ -618,6 +753,34 @@ function auditToFacts(a) {
 // question about the current subject → answered from that hadith's audit bundle.
 // Either way the model is fed only STRUCTURED FACTS, never raw text to judge.
 async function nibrasComposeHandler(req, res, body) {
+  // ── register compose (خطبة/منشور/محاضرة/تلخيص) from gathered hadith material ──
+  if (body.task) {
+    if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY not set on server");
+    const task = NIBRAS_TASK[body.task] ? body.task : "post";
+    const length = NIBRAS_LEN[body.length] ? body.length : "medium";
+    const lenSpec = NIBRAS_LEN[length];
+    const subject = (body.subject ?? "").slice(0, 200);
+    const ahadith = (Array.isArray(body.ahadith) ? body.ahadith : []).slice(0, 16);
+    if (!ahadith.length) throw new Error("no material");
+    const instruction = (body.instruction ?? "").slice(0, 300);
+    const previous = (body.previous ?? "").slice(0, 4000);
+    const hasWeak = ahadith.some((a) => /ضعيف|موضوع|منكر|متروك|شديد|واه/.test(a.hukm ?? ""));
+    const material = ahadith.map((a) =>
+      `• «${(a.matn ?? "").slice(0, 360)}» [${a.book ?? ""}${a.noInBook ? ` ${a.noInBook}` : ""}${a.hukm ? ` · ${a.hukm}` : ""}${a.kind && a.kind !== "مرفوع" ? ` · ${a.kind}` : ""}]`).join("\n");
+    const refine = previous && instruction
+      ? `\n\nلديك مسوّدةٌ سابقةٌ في هذه المحادثة، والمطلوبُ تطويرُها وفقَ طلبِ المستخدم: «${instruction}». احتفِظْ بجيّدها وابنِ عليها من المادّةِ نفسها، ولا تبدأْ من الصفر.\n\nالمسوّدةُ السابقة:\n${previous}`
+      : "";
+    const userText = `اكتبْ ${NIBRAS_TASK[task]}\n\nالموضوع: ${subject || "(يُستخلَص من الأحاديث)"}\n\nاعتمِدْ على هذه المادّةِ وحدَها، واستشهِدْ بأحاديثها نصّاً مع مصادرها ودرجاتها:\n\n${material}${refine}`;
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache",
+      "Access-Control-Allow-Origin": "*", Connection: "keep-alive",
+    });
+    await streamGemini(res, nibrasComposeSystem(lenSpec, hasWeak),
+      [{ role: "user", parts: [{ text: userText }] }],
+      { temperature: 0.85, maxOutputTokens: lenSpec.max, thinkingBudget: 2048 });
+    return;
+  }
+
   const claim = (body.claim ?? "").trim();
   if (claim.length < 4) throw new Error("claim too short");
   const history = Array.isArray(body.history) ? body.history.slice(-6) : [];
@@ -1534,6 +1697,13 @@ const routes = {
     return { hits: hits.slice(0, limit), available: true };
   },
 
+  // نبراس · gated meaning retrieval (marfū' groups + آثār, one embedding, gated).
+  "GET /api/nibras/retrieve": async (u) => {
+    const qs = (u.searchParams.get("q") ?? "").trim();
+    if (qs.length < 3) return { hits: [] };
+    return retrieveNibras(qs, { limit: clamp(u.searchParams.get("limit"), 12, 16) });
+  },
+
   // Retrieval context for a RAG chat: semantic + FTS merged at the meaning
   // level, each group expanded with its best narrations.
   "GET /api/rag/context": async (u) => {
@@ -1873,8 +2043,9 @@ const server = http.createServer(async (req, res) => {
     res.end();
     return;
   }
-  if (req.method === "POST" && (u.pathname === "/api/chat" || u.pathname === "/api/nibras/compose")) {
-    const handler = u.pathname === "/api/nibras/compose" ? nibrasComposeHandler : chatHandler;
+  if (req.method === "POST" && (u.pathname === "/api/chat" || u.pathname === "/api/nibras/compose" || u.pathname === "/api/nibras/plan")) {
+    const handler = u.pathname === "/api/nibras/compose" ? nibrasComposeHandler
+      : u.pathname === "/api/nibras/plan" ? nibrasPlanHandler : chatHandler;
     const chunks = [];
     req.on("data", (c) => chunks.push(c));
     req.on("end", async () => {
