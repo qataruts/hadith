@@ -32,6 +32,24 @@ installers + public Docker image).
   self-contained SVG (no tiles) placing cities by lat/lng, sized by narrator
   count, with weighted directional flow arcs from death_place/iqama.
 
+- **v1.17.0** — **قائمةٌ مجمّعة + تحصينُ نقاط الذكاء** (grouped nav + guarded AI
+  endpoints): the flat ten-item top bar becomes two always-visible entries
+  (الرئيسية · البحث) + two fixed-positioned dropdown groups — «الأدوات» (حارس
+  الإسناد · تعارض الأحكام · الأفراد والغرائب · احكم على السند) and «التصفّح»
+  (المواضيع · الكتب · النقّاد) — with نِبراس set apart in accent. The active group
+  auto-highlights per route, dropdowns dismiss on outside-click/Escape/navigate,
+  and phones get a ☰ **drawer** listing the same groups as labelled sections
+  (renderNav/renderDrawerNav/openNavGroup/openDrawer in main.js; fixed-positioned
+  menus so the scrollable mobile bar never clips them). **Security**: the public
+  Docker image binds 0.0.0.0 and every AI route spends the operator's own
+  GEMINI_API_KEY, so server.mjs now guards the seven Gemini-calling routes (chat ·
+  nibras/compose · nibras/plan · nibras/retrieve · semantic/groups · search/athar ·
+  rag/context) with a per-IP fixed-window rate limit (40/min → 429), a 512 KB
+  request-body cap enforced before JSON.parse (→ 413), prompt-length caps
+  (question/claim/history), and an exact-boundary static path-traversal check.
+  Verified: 429 past the cap, 413 on a 600 KB body, legit requests still 200.
+  DEPLOY.md now advises a reverse-proxy auth gate for public hosting; the
+  single-user desktop app is unaffected.
 - **v1.16.0** — **نِبراس — المساعدُ الحواريّ الموحَّد** (the unified conversational
   assistant): نبراس graduates from scattered modes into ONE research companion at
   `#/nibras`, in the image of the Quran «مشكاة» نبراس. Multi-chat (localStorage,
