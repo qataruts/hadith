@@ -42,18 +42,115 @@ const routes = [
   [/^\/chat/, chatPage, "المحادثة البحثية"],
 ];
 
+// Top-nav grouped so ten destinations don't sprawl across one row: two always-
+// visible entry points (الرئيسية · البحث), two themed dropdowns (الأدوات · التصفّح),
+// and نِبراس set apart as the AI companion. Dropdown menus are positioned fixed on
+// open (openNavGroup), so the horizontally-scrollable mobile nav never clips them.
 const NAV = [
-  ["#/", "الرئيسية"],
-  ["#/search", "البحث"],
-  ["#/topics", "المواضيع"],
-  ["#/tafarrud", "الأفراد والغرائب"],
-  ["#/conflicts", "تعارض الأحكام"],
-  ["#/check", "حارس الإسناد"],
-  ["#/quiz", "احكم على السند"],
-  ["#/books", "الكتب"],
-  ["#/alems", "النقّاد"],
-  ["#/nibras", "نِبراس"],
+  { href: "#/", label: "الرئيسية" },
+  { href: "#/search", label: "البحث" },
+  {
+    label: "الأدوات", items: [
+      ["#/check", "حارس الإسناد"],
+      ["#/conflicts", "تعارض الأحكام"],
+      ["#/tafarrud", "الأفراد والغرائب"],
+      ["#/quiz", "احكم على السند"],
+    ],
+  },
+  {
+    label: "التصفّح", items: [
+      ["#/topics", "المواضيع"],
+      ["#/books", "الكتب"],
+      ["#/alems", "النقّاد"],
+    ],
+  },
+  { href: "#/nibras", label: "نِبراس", cls: "nav-nibras" },
 ];
+
+const navActive = (h, cur) => (h === "#/" ? cur === "#/" : cur.startsWith(h));
+
+/** Render the grouped nav: plain links + dropdown groups (menu hidden until opened). */
+function renderNav(cur) {
+  return NAV.map((it) => {
+    if (!it.items) {
+      return `<a href="${it.href}" class="${it.cls ? it.cls + " " : ""}${navActive(it.href, cur) ? "active" : ""}">${it.label}</a>`;
+    }
+    const active = it.items.some(([h]) => navActive(h, cur));
+    const menu = it.items
+      .map(([h, t]) => `<a href="${h}" role="menuitem" class="${navActive(h, cur) ? "active" : ""}">${t}</a>`)
+      .join("");
+    return `<div class="nav-group">`
+      + `<button class="nav-group-btn${active ? " active" : ""}" type="button" aria-haspopup="true" aria-expanded="false">${it.label}<span class="nav-caret" aria-hidden="true">▾</span></button>`
+      + `<div class="nav-group-menu" role="menu" hidden>${menu}</div>`
+      + `</div>`;
+  }).join("");
+}
+
+/** Mobile drawer nav: primary links flat, each group as a labelled section. */
+function renderDrawerNav(cur) {
+  return NAV.map((it) => {
+    if (!it.items) {
+      return `<a href="${it.href}" class="${it.cls ? it.cls + " " : ""}${navActive(it.href, cur) ? "active" : ""}">${it.label}</a>`;
+    }
+    return `<div class="drawer-section"><div class="drawer-section-h">${it.label}</div>`
+      + it.items.map(([h, t]) => `<a href="${h}" class="${navActive(h, cur) ? "active" : ""}">${t}</a>`).join("")
+      + `</div>`;
+  }).join("");
+}
+
+/* Mobile drawer — open/close via a body class (the markup lives in the shell and
+ * re-renders each route, so route() clears the class; delegated handlers below). */
+function openDrawer() {
+  document.body.classList.add("drawer-open");
+  document.getElementById("menu-btn")?.setAttribute("aria-expanded", "true");
+}
+function closeDrawer() {
+  document.body.classList.remove("drawer-open");
+  document.getElementById("menu-btn")?.setAttribute("aria-expanded", "false");
+}
+document.addEventListener("click", (e) => {
+  if (e.target.closest?.("#menu-btn")) { e.preventDefault(); openDrawer(); return; }
+  if (e.target.closest?.("[data-drawer-close]") || e.target.closest?.(".drawer-nav a")) closeDrawer();
+});
+
+/* Grouped-nav dropdowns — fixed-positioned menus, wired once via delegation
+ * (the whole shell re-renders on every route, so per-element handlers would leak). */
+function closeNavGroups() {
+  document.querySelectorAll(".nav-group.open").forEach((g) => {
+    g.classList.remove("open");
+    g.querySelector(".nav-group-btn")?.setAttribute("aria-expanded", "false");
+    const m = g.querySelector(".nav-group-menu");
+    if (m) m.hidden = true;
+  });
+}
+function openNavGroup(g) {
+  const btn = g.querySelector(".nav-group-btn");
+  const menu = g.querySelector(".nav-group-menu");
+  if (!btn || !menu) return;
+  menu.hidden = false;
+  g.classList.add("open");
+  btn.setAttribute("aria-expanded", "true");
+  const r = btn.getBoundingClientRect();                       // fixed → viewport coords, RTL-aligned
+  menu.style.top = `${Math.round(r.bottom + 6)}px`;
+  menu.style.right = `${Math.round(Math.max(8, window.innerWidth - r.right))}px`;
+  menu.style.left = "auto";
+}
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest?.(".nav-group-btn");
+  if (btn) {
+    e.preventDefault();
+    const g = btn.closest(".nav-group");
+    const wasOpen = g.classList.contains("open");
+    closeNavGroups();
+    if (!wasOpen) openNavGroup(g);
+    return;
+  }
+  if (e.target.closest?.(".nav-group-menu a")) return closeNavGroups(); // navigate + close
+  if (!e.target.closest?.(".nav-group-menu")) closeNavGroups();          // click outside
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeNavGroups(); closeDrawer(); } });
+addEventListener("resize", closeNavGroups);
+document.addEventListener("scroll", closeNavGroups, { passive: true, capture: true }); // capture: inner scrollers too
 
 const app = document.getElementById("app");
 
@@ -61,19 +158,29 @@ function shell(content) {
   const cur = location.hash.replace(/\?.*/, "") || "#/";
   return `
   <header class="topbar"><div class="topbar-in">
+    <button class="menu-btn" id="menu-btn" type="button" aria-label="القائمة" aria-controls="drawer" aria-expanded="false">☰</button>
     <a class="brand" href="#/">${logoMark(30)}<span>الجامع</span> <small>الشبكة المعرفية للحديث الشريف</small></a>
-    <nav class="nav">${NAV.map(([h, t]) =>
-      `<a href="${h}" class="${(h === "#/" ? cur === "#/" : cur.startsWith(h)) ? "active" : ""}">${t}</a>`).join("")}
-    </nav>
+    <nav class="nav">${renderNav(cur)}</nav>
     <button class="scope-btn" id="scope-btn" title="اختيار نطاق الكتب التي يعمل ضمنها التطبيق">${icon.scope()} <span id="scope-lbl"></span></button>
     <button class="icon-btn" id="theme-toggle" title="تبديل الوضع الليلي" aria-label="تبديل الوضع الليلي">${icon.moon()}</button>
   </div></header>
+  <div class="drawer-root" id="drawer">
+    <div class="drawer-backdrop" data-drawer-close></div>
+    <aside class="drawer-panel" role="dialog" aria-modal="true" aria-label="قائمة التنقّل">
+      <div class="drawer-head">
+        <span class="drawer-brand">الجامع</span>
+        <button class="drawer-close" data-drawer-close type="button" aria-label="إغلاق القائمة">✕</button>
+      </div>
+      <nav class="drawer-nav">${renderDrawerNav(cur)}</nav>
+    </aside>
+  </div>
   <main class="wrap" id="page">${content}</main>`;
 }
 
 let renderToken = 0;
 async function route() {
   const token = ++renderToken;
+  document.body.classList.remove("drawer-open"); // shell re-renders below; never carry an open drawer across nav
   const hash = location.hash.slice(1) || "/";
   const [path, qs] = hash.split("?");
   const params = new URLSearchParams(qs ?? "");

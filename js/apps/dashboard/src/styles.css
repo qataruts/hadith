@@ -111,6 +111,74 @@ h1 { font-size: 1.9em; }
 }
 .nav a:hover { background: var(--surface-2); text-decoration: none; }
 .nav a.active { color: var(--accent); background: var(--accent-soft); font-weight: 500; }
+
+/* grouped-nav dropdowns */
+.nav-group { position: relative; display: inline-flex; }
+.nav-group-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 12px; border-radius: 8px; border: none; cursor: pointer;
+  background: none; color: var(--ink-2); font: inherit; font-size: 14px; line-height: 1;
+}
+.nav-group-btn:hover { background: var(--surface-2); }
+.nav-group-btn.active { color: var(--accent); background: var(--accent-soft); font-weight: 500; }
+.nav-group.open .nav-group-btn { background: var(--surface-2); }
+.nav-caret { font-size: 10px; opacity: 0.65; transition: transform 0.15s ease; }
+.nav-group.open .nav-caret { transform: rotate(180deg); }
+.nav-group-menu {
+  position: fixed; z-index: 60; min-width: 186px;
+  display: flex; flex-direction: column; gap: 2px; padding: 6px;
+  background: var(--surface); border: 1px solid var(--hairline);
+  border-radius: var(--radius); box-shadow: 0 14px 34px rgba(11, 11, 11, 0.16);
+  animation: nav-menu-in 0.13s ease-out;
+}
+.nav-group-menu[hidden] { display: none; }
+.nav-group-menu a {
+  padding: 9px 12px; border-radius: 8px; color: var(--ink);
+  font-size: 14px; text-decoration: none; white-space: nowrap;
+}
+.nav-group-menu a:hover { background: var(--surface-2); text-decoration: none; }
+.nav-group-menu a.active { color: var(--accent); background: var(--accent-soft); font-weight: 500; }
+@keyframes nav-menu-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+/* نِبراس — the AI companion, set apart in the bar */
+.nav-nibras { color: var(--accent); font-weight: 600; }
+.nav-nibras.active { background: var(--accent-soft); }
+
+/* mobile hamburger + drawer (replaces the inline nav on phones) */
+.menu-btn { display: none; }
+@media (max-width: 720px) {
+  .menu-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; flex: none; border: 1px solid var(--hairline);
+    background: var(--surface); color: var(--ink-2); border-radius: 9px;
+    font-size: 17px; line-height: 1; cursor: pointer; padding: 0;
+  }
+  .menu-btn:hover { background: var(--surface-2); }
+  .topbar .nav { display: none; }
+}
+.drawer-root { position: fixed; inset: 0; z-index: 100; pointer-events: none; }
+body.drawer-open .drawer-root { pointer-events: auto; }
+.drawer-backdrop { position: absolute; inset: 0; background: rgba(11, 11, 11, 0.45); opacity: 0; transition: opacity 0.2s ease; }
+body.drawer-open .drawer-backdrop { opacity: 1; }
+.drawer-panel {
+  position: absolute; inset-block: 0; right: 0; width: min(84vw, 320px);
+  background: var(--surface); border-inline-start: 1px solid var(--hairline);
+  box-shadow: -12px 0 34px rgba(11, 11, 11, 0.16);
+  display: flex; flex-direction: column; padding: 8px 12px 22px; overflow-y: auto;
+  transform: translateX(100%); transition: transform 0.22s ease;
+}
+body.drawer-open .drawer-panel { transform: translateX(0); }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 6px 12px; }
+.drawer-brand { font-family: var(--font-head); font-weight: 700; font-size: 22px; color: var(--accent); }
+.drawer-close { border: none; background: none; color: var(--ink-3); font-size: 18px; cursor: pointer; padding: 6px 8px; border-radius: 8px; }
+.drawer-close:hover { background: var(--surface-2); }
+.drawer-nav { display: flex; flex-direction: column; gap: 2px; }
+.drawer-nav > a { padding: 12px; border-radius: 9px; color: var(--ink); font-size: 16px; font-weight: 500; text-decoration: none; }
+.drawer-nav > a:hover, .drawer-nav a.active { background: var(--accent-soft); color: var(--accent); text-decoration: none; }
+.drawer-nav > a.nav-nibras { color: var(--accent); font-weight: 700; }
+.drawer-section { display: flex; flex-direction: column; gap: 2px; }
+.drawer-section-h { font-size: 11px; font-weight: 700; color: var(--ink-3); letter-spacing: 0.02em; padding: 15px 8px 5px; margin-top: 6px; border-top: 1px solid var(--hairline); }
+.drawer-section a { padding: 11px 14px; border-radius: 9px; color: var(--ink); font-size: 15px; text-decoration: none; }
+.drawer-section a:hover, .drawer-section a.active { background: var(--accent-soft); color: var(--accent); text-decoration: none; }
 .icon-btn {
   border: 1px solid var(--hairline); background: var(--surface); color: var(--ink-2);
   width: 34px; height: 34px; border-radius: 9px; cursor: pointer; font-size: 15px;
