@@ -47,6 +47,15 @@ GEMINI_API_KEY=YOUR_KEY docker compose up -d
    health check green. Give it a few minutes on the first deploy.
 7. **Enable HTTPS** in CapRover once it's up.
 
+**Security note (public deployments):** the server applies a per-IP rate limit
+(40 req/min) and a request-body size cap on the AI routes that spend your
+`GEMINI_API_KEY` — enough to blunt casual abuse, but it is **not** authentication.
+If you expose this publicly and want to prevent strangers spending your Gemini
+quota, put an auth gate in front of it (CapRover → *nginx config* → HTTP Basic
+Auth, or an API-key header check in a reverse proxy) covering at least the
+`/api/chat`, `/api/nibras/*`, `/api/semantic/*`, `/api/search/athar` and
+`/api/rag/*` paths. Omit `GEMINI_API_KEY` entirely to run with AI features off.
+
 **SSE note:** the research chat streams via Server-Sent Events. If streamed
 answers appear only at the end, disable proxy buffering for the app — CapRover
 → app → *nginx config* — add `proxy_buffering off;` in the location block.

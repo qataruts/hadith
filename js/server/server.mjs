@@ -523,9 +523,10 @@ async function chatHandler(req, res, body) {
   const { question, history = [], books } = body;
   if (!question?.trim()) throw new Error("question is required");
   if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY not set on server");
+  const q = String(question).slice(0, 2000); // bound the prompt fed to Gemini
 
   const scope = Array.isArray(books) && books.length ? new Set(books.map(Number)) : null;
-  const ctx = await ragContext(question.trim(), 6, 3, scope);
+  const ctx = await ragContext(q.trim(), 6, 3, scope);
   const sources = [];
   for (const g of ctx.groups)
     for (const n of g.narrations)
@@ -553,9 +554,9 @@ async function chatHandler(req, res, body) {
   const contents = [
     ...history.slice(-6).map((m) => ({
       role: m.role === "user" ? "user" : "model",
-      parts: [{ text: m.text }],
+      parts: [{ text: String(m.text ?? "").slice(0, 2000) }],
     })),
-    { role: "user", parts: [{ text: `المصادر:\n\n${sourceBlock}\n\nالسؤال: ${question}` }] },
+    { role: "user", parts: [{ text: `المصادر:\n\n${sourceBlock}\n\nالسؤال: ${q}` }] },
   ];
   const ac = new AbortController();
   res.on("close", () => ac.abort());     // stop paying for tokens into a dead socket
@@ -781,7 +782,7 @@ async function nibrasComposeHandler(req, res, body) {
     return;
   }
 
-  const claim = (body.claim ?? "").trim();
+  const claim = String(body.claim ?? "").slice(0, 4000).trim();
   if (claim.length < 4) throw new Error("claim too short");
   const history = Array.isArray(body.history) ? body.history.slice(-6) : [];
   const subject = Number(body.subject) || null;
@@ -800,7 +801,7 @@ async function nibrasComposeHandler(req, res, body) {
     const audit = await callApi(`/api/nibras/audit/${subject}`);
     const factsBlock = auditToFacts(audit);
     const contents = [
-      ...history.map((m) => ({ role: m.role === "user" ? "user" : "model", parts: [{ text: m.text }] })),
+      ...history.map((m) => ({ role: m.role === "user" ? "user" : "model", parts: [{ text: String(m.text ?? "").slice(0, 2000) }] })),
       { role: "user", parts: [{ text: `الحقائق المسجَّلة عن الحديث محل النقاش:\n${factsBlock}\n\nسؤال المستخدم: ${claim}\n\nأجب عن سؤاله من هذه الحقائق فقط، ولا تخرج عنها ولا تُعِد الحكم.` }] },
     ];
     await streamGemini(res, NIBRAS_SYSTEM, contents);
@@ -834,7 +835,7 @@ const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css
 function serveStatic(u, res) {
   if (!fs.existsSync(STATIC_DIR)) return false;
   let p = path.normalize(path.join(STATIC_DIR, u.pathname));
-  if (!p.startsWith(STATIC_DIR)) return false;
+  if (p !== STATIC_DIR && !p.startsWith(STATIC_DIR + path.sep)) return false; // exact-boundary, not bare prefix
   if (!fs.existsSync(p) || fs.statSync(p).isDirectory()) p = path.join(STATIC_DIR, "index.html");
   if (!fs.existsSync(p)) return false;
   res.writeHead(200, { "Content-Type": MIME[path.extname(p)] ?? "application/octet-stream" });
@@ -2029,6 +2030,36 @@ async function callApi(pathname, query = {}) {
   return null;
 }
 
+// ---- abuse guards -------------------------------------------------------------
+// Every AI route spends the operator's own Gemini quota, and the public Docker
+// image binds 0.0.0.0 — so cap requests per client IP and bound request-body size.
+// Lenient enough that the single-user desktop app never notices; enough to stop a
+// scripted drain on a publicly-exposed deployment. (Not a substitute for a real
+// auth gate — DEPLOY.md still advises a reverse-proxy for public hosting.)
+const AI_ROUTES = new Set([
+  "/api/chat", "/api/nibras/compose", "/api/nibras/plan",
+  "/api/nibras/retrieve", "/api/semantic/groups", "/api/search/athar", "/api/rag/context",
+]);
+const RL_MAX = 40, RL_WINDOW = 60_000, MAX_BODY = 512 * 1024;
+const rlHits = new Map(); // ip → { n, resetAt } — fixed window, pruned every 5 min
+setInterval(() => { const now = Date.now(); for (const [ip, e] of rlHits) if (e.resetAt <= now) rlHits.delete(ip); }, 5 * 60_000).unref?.();
+function clientIp(req) {
+  const xff = req.headers["x-forwarded-for"];
+  return (xff ? String(xff).split(",")[0] : req.socket?.remoteAddress || "?").trim();
+}
+function aiRateLimited(req, res) {
+  const ip = clientIp(req), now = Date.now();
+  let e = rlHits.get(ip);
+  if (!e || e.resetAt <= now) { e = { n: 0, resetAt: now + RL_WINDOW }; rlHits.set(ip, e); }
+  if (++e.n > RL_MAX) {
+    const retry = Math.ceil((e.resetAt - now) / 1000);
+    res.writeHead(429, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Retry-After": String(retry) });
+    res.end(JSON.stringify({ error: "معدّلُ الطلبات مرتفعٌ؛ أمهِلْ قليلاً ثم أعِد المحاولة.", retryAfter: retry }));
+    return true;
+  }
+  return false;
+}
+
 // ---- http ---------------------------------------------------------------------
 const server = http.createServer(async (req, res) => {
   try {
@@ -2043,12 +2074,26 @@ const server = http.createServer(async (req, res) => {
     res.end();
     return;
   }
+  if (AI_ROUTES.has(u.pathname) && aiRateLimited(req, res)) return; // per-IP quota on Gemini-spending routes
   if (req.method === "POST" && (u.pathname === "/api/chat" || u.pathname === "/api/nibras/compose" || u.pathname === "/api/nibras/plan")) {
     const handler = u.pathname === "/api/nibras/compose" ? nibrasComposeHandler
       : u.pathname === "/api/nibras/plan" ? nibrasPlanHandler : chatHandler;
     const chunks = [];
-    req.on("data", (c) => chunks.push(c));
+    let size = 0, tooBig = false;
+    req.on("data", (c) => {
+      if (tooBig) return;
+      size += c.length;
+      if (size > MAX_BODY) {                 // bound memory before JSON.parse ever runs
+        tooBig = true;
+        res.writeHead(413, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+        res.end(JSON.stringify({ error: "حجمُ الطلب أكبرُ من الحدّ المسموح." }));
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
     req.on("end", async () => {
+      if (tooBig) return;
       try {
         await handler(req, res, JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"));
       } catch (e) {
