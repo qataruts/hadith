@@ -430,48 +430,64 @@ export function mountIsnadTree(container, tree, { budget = 46, fetchRawi, onEdge
    * (prophet → author), colored by its own grade — ضعيف dashes red the entire
    * way — while the rest of the network dims. This is the difference between
    * "each link colored separately" and actually FOLLOWING a سلسلة. */
-  let pinned = null;                       // the pinned route object, or null
+  let pinned = null;                       // { keys, ids, stroke, dash } or null
   const GRADE_STROKE = { sahih: "var(--ok)", hasan: "var(--gold)",
                          daif: "var(--warn)", mawdu: "var(--critical)" };
   function paintPinned() {
     const eds = [...gEdges.querySelectorAll(".edge-vis")];
     const nds = [...gNodes.querySelectorAll(".tnode")];
     if (!pinned) {                         // clear: back to per-link colors
-      eds.forEach((p) => p.classList.remove("chain-on", "chain-off"));
+      eds.forEach((p) => { p.classList.remove("chain-on", "chain-off");
+        p.style.stroke = ""; p.style.strokeWidth = ""; p.style.opacity = ""; p.style.strokeDasharray = ""; });
       nds.forEach((g) => g.classList.remove("chain-on", "chain-off"));
       return;
     }
-    const keys = new Set();
-    for (let i = 1; i < pinned.path.length; i++) keys.add(`${pinned.path[i - 1]}>${pinned.path[i]}`);
-    const ids = new Set(pinned.path.map(String));
-    const stroke = GRADE_STROKE[pinned.gradeKey] ?? "var(--accent)";
-    const weak = pinned.gradeKey === "daif" || pinned.gradeKey === "mawdu";
     for (const p of eds) {
-      const on = keys.has(p.dataset.key);
+      const on = pinned.keys.has(p.dataset.key);
       p.classList.toggle("chain-on", on);
       p.classList.toggle("chain-off", !on);
       if (on) {
-        p.style.stroke = stroke;
+        p.style.stroke = pinned.stroke;
         p.style.strokeWidth = "3.4";
         p.style.opacity = "1";
-        p.style.strokeDasharray = weak ? "7 4" : "";
+        p.style.strokeDasharray = pinned.dash ? "7 4" : "";
       } else { p.style.stroke = ""; p.style.strokeWidth = ""; p.style.opacity = ""; p.style.strokeDasharray = ""; }
     }
     for (const g of nds) {
-      const on = ids.has(g.dataset.id);
+      const on = pinned.ids.has(g.dataset.id);
       g.classList.toggle("chain-on", on);
       g.classList.toggle("chain-off", !on);
     }
   }
-  /** Pin a route (object from tree.routes) or clear with null. */
-  function pinRoute(route) {
-    pinned = route && route.path?.length ? route : null;
-    // make sure every narrator of the pinned chain is actually on screen
-    if (pinned) {
-      let grew = false;
-      for (const id of pinned.path) if (!visible.has(id)) { visible.add(id); grew = true; }
-      if (grew) render();
+  /** Build a highlight over one or more routes ({path:[ids]} objects). */
+  function buildPin(list, stroke, dash) {
+    const keys = new Set(), ids = new Set();
+    for (const r of list) {
+      for (let i = 1; i < r.path.length; i++) keys.add(`${r.path[i - 1]}>${r.path[i]}`);
+      for (const id of r.path) ids.add(String(id));
     }
+    return { keys, ids, stroke, dash };
+  }
+  function ensureVisible(list) {
+    let grew = false;
+    for (const r of list) for (const id of r.path) if (!visible.has(id)) { visible.add(id); grew = true; }
+    if (grew) render();
+  }
+  /** Pin ONE route (colored by its own grade), or clear with null. */
+  function pinRoute(route) {
+    if (!route?.path?.length) { pinned = null; paintPinned(); return null; }
+    ensureVisible([route]);
+    pinned = buildPin([route], GRADE_STROKE[route.gradeKey] ?? "var(--accent)",
+                      route.gradeKey === "daif" || route.gradeKey === "mawdu");
+    paintPinned();
+    return pinned;
+  }
+  /** Pin a SET of routes in one colour — used to paint الاعتبار (متابعات/شواهد). */
+  function pinRoutes(list, { stroke = "var(--accent)", dash = false } = {}) {
+    const rs = (list ?? []).filter((r) => r?.path?.length);
+    if (!rs.length) { pinned = null; paintPinned(); return null; }
+    ensureVisible(rs);
+    pinned = buildPin(rs, stroke, dash);
     paintPinned();
     return pinned;
   }
@@ -540,6 +556,7 @@ export function mountIsnadTree(container, tree, { budget = 46, fetchRawi, onEdge
 
   return {
     pinRoute,                       // تتبّع السلسلة: pin a whole route, or null to clear
+    pinRoutes,                      // رسم الاعتبار: pin a set of routes in one colour
     isPinned: () => pinned,
     destroy() {
       document.removeEventListener("keydown", onKey);

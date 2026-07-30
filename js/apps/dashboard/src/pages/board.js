@@ -21,11 +21,20 @@ const routeList = (arr, empty) => arr.length
       </a>`).join("")}</div>`
   : `<div class="muted" style="padding:6px 2px">${empty}</div>`;
 
+/** i'tibar buckets of the current board, as hadithId sets — used to paint the
+ *  network (رسم الاعتبار على الشجرة) once the tree has mounted. */
+let boardBuckets = null;
+
 export async function board({ args: [id], params }) {
   const rawi = Number(params.get("rawi")) || 0;
   const [g, b] = await Promise.all([api.group(id, 0), api.groupBoard(id, rawi)]);
   if (!g || !b?.available)
     return `<div class="empty">لا يمكن فتح لوحة الاعتبار لهذا المعنى (لا أسانيد كافية).</div>`;
+  boardBuckets = {
+    tamma: new Set((b.tamma ?? []).map((x) => x.hadithId)),
+    qasira: new Set((b.qasira ?? []).map((x) => x.hadithId)),
+    shawahid: new Set((b.shawahid ?? []).map((x) => x.hadithId)),
+  };
   document.title = `لوحة الاعتبار — ${g.nass.slice(0, 30)}… — الجامع`;
 
   const scopeN = getScopeIds()?.length;
@@ -82,6 +91,15 @@ export async function board({ args: [id], params }) {
 
   <div class="card" style="margin-top:14px">
     <h3 style="margin:0 0 6px">شبكة الطرق <span class="tag-count">المدار مكلَّل · لون الخط = أضعف حلقة</span></h3>
+    <div class="muted" style="font-size:12.5px;margin-bottom:6px">
+      أبرِزْ نوعَ الاعتبار على الشبكةِ نفسِها — تُضاءُ مساراتُ ذلك النوعِ كلُّها وتخفتُ البقيّة:
+    </div>
+    <div class="routes-bar" id="itibar-paint">
+      <button class="route-chip on" data-b="none">الشبكةُ كلُّها</button>
+      <button class="route-chip" data-b="tamma">متابعةٌ تامّة <span class="rc-grade">${fmt(b.counts.tamma)}</span></button>
+      <button class="route-chip" data-b="qasira">متابعةٌ قاصرة <span class="rc-grade">${fmt(b.counts.qasira)}</span></button>
+      <button class="route-chip" data-b="shawahid">شواهد <span class="rc-grade">${fmt(b.counts.shawahid)}</span></button>
+    </div>
     <div id="board-tree" data-group="${id}" data-sahabi="${b.companion.rawiId}">
       <div class="skeleton" style="height:300px"></div>
     </div>
@@ -120,10 +138,35 @@ document.addEventListener("page:rendered", async () => {
     const tree = await api.groupTree(gid, { sahabi });   // respects the active book scope
     if (!holder.isConnected) return;
     if (!tree || tree.chains === 0) { holder.innerHTML = `<div class="empty">لا شبكة لعرضها ضمن النطاق</div>`; return; }
-    mountIsnadTree(holder, tree, {
+    const inst = mountIsnadTree(holder, tree, {
       budget: 60,
       fetchRawi: (rid) => api.rawi(rid),
       onEdge: (from, to) => api.groupEdge(gid, from, to, { sahabi }).then((r) => r.narrations),
     });
+
+    // رسمُ الاعتبار على الشبكة: match the board's buckets (by hadithId) to the
+    // tree's route paths, so «متابعة تامة» lights the actual chains that carry it
+    const paint = document.getElementById("itibar-paint");
+    if (paint && inst?.pinRoutes && boardBuckets) {
+      const COLORS = { tamma: "var(--ok)", qasira: "var(--gold)", shawahid: "var(--accent)" };
+      const routes = tree.routes ?? [];
+      paint.addEventListener("click", (e) => {
+        const btn = e.target.closest(".route-chip");
+        if (!btn) return;
+        paint.querySelectorAll(".route-chip").forEach((x) => x.classList.remove("on"));
+        btn.classList.add("on");
+        const kind = btn.dataset.b;
+        if (kind === "none") { inst.pinRoutes(null); return; }
+        const ids = boardBuckets[kind];
+        const hit = routes.filter((r) => ids.has(r.hadithId));
+        if (!hit.length) {
+          inst.pinRoutes(null);
+          btn.classList.add("empty-hint");
+          setTimeout(() => btn.classList.remove("empty-hint"), 1200);
+          return;
+        }
+        inst.pinRoutes(hit, { stroke: COLORS[kind] });
+      });
+    }
   } catch { holder.innerHTML = `<div class="empty">تعذّر رسم الشبكة</div>`; }
 });
