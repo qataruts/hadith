@@ -143,6 +143,30 @@ h1 { font-size: 1.9em; }
 .nav-nibras { color: var(--accent); font-weight: 600; }
 .nav-nibras.active { background: var(--accent-soft); }
 
+/* «مبصرٌ في الاعتبار»: a corroborating route from outside the active book scope */
+.badge.scope-out { background: var(--surface-2); color: var(--ink-3); border: 1px dashed var(--ink-3); }
+
+/* تتبّعُ السلسلة — a pinned route reads as one continuous line; the rest recedes */
+.edge-vis, .tnode { transition: opacity .16s ease; }
+.edge-vis.chain-off { opacity: .1 !important; }
+.tnode.chain-off { opacity: .28; }
+.tnode.chain-on rect { stroke-width: 2.6; }
+.edge-vis.chain-on { stroke-linecap: round; }
+
+/* شريط الطرق — route chips under a hadith / on a taraf page */
+.routes-bar { display: flex; gap: 7px; overflow-x: auto; padding: 4px 0 8px; scrollbar-width: thin; }
+.routes-bar::-webkit-scrollbar { height: 6px; }
+.routes-bar::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 3px; }
+.route-chip {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  padding: 6px 11px; border-radius: 999px; border: 1px solid var(--hairline);
+  background: var(--surface); color: var(--ink-2); font: inherit; font-size: 12.5px; white-space: nowrap;
+}
+.route-chip:hover { border-color: var(--accent); color: var(--accent); }
+.route-chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.route-chip .rc-grade { font-size: 11px; opacity: .85; }
+.route-chip.weak .rc-grade { color: var(--critical); }
+
 /* mobile hamburger + drawer (replaces the inline nav on phones) */
 .menu-btn { display: none; }
 @media (max-width: 720px) {

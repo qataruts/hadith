@@ -3,6 +3,7 @@
  * verify a claim · or draft a خطبة/منشور/محاضرة/تلخيص from the gathered material —
  * always grounded in the encyclopedia, always cited. «قراءةٌ من الموسوعة لا فتوى». */
 import { api, nibrasComposeStream } from "../api.js";
+import { getScopeIds } from "../components/scope.js";
 import { esc, fmt, gradeBadge } from "../util.js";
 import * as store from "../components/nibras-store.js";
 import { icon } from "../icons.js";
@@ -148,7 +149,7 @@ async function send(text) {
       let prose = "", checkData = null;
       const el = () => bubbleEl(mid);
       const paint = () => { if (el()) el().innerHTML = `<div class="nib-reply">${bold(prose)}</div>${checkData ? checkCards(checkData) : ""}`; };
-      await nibrasComposeStream({ claim: plan.query || text }, {
+      await nibrasComposeStream({ claim: plan.query || text, books: getScopeIds() ?? undefined }, {
         onCheck(c) { checkData = c; paint(); },
         onDelta(t) { prose += t; paint(); },
         onNokey() { if (!prose) prose = "النتيجة في الأسفل — أضِفْ مفتاح Gemini لقراءةٍ مركّبة."; paint(); },

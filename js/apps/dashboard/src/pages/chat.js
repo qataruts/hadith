@@ -127,7 +127,7 @@ document.addEventListener("page:rendered", () => {
     let answer = "";
 
     if (mode === "check") {
-      nibrasComposeStream({ claim: q, history: history.slice(-6), subject: checkSubject }, {
+      nibrasComposeStream({ claim: q, history: history.slice(-6), subject: checkSubject, books: getScopeIds() ?? undefined }, {
         onCheck(chk) { if (gen === generation) renderCheckPanel(chk); },
         onSubject(id) { if (gen === generation) { checkSubject = id; input.placeholder = "اسأل عن هذا الحديث، أو الصِق حديثاً جديداً…"; } },
         onFollowup() { /* keep the current subject's source panel */ },

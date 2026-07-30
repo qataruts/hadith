@@ -168,7 +168,7 @@ export function mountIsnadTree(container, tree, { budget = 46, fetchRawi, onEdge
       // wide transparent hit path (easy to click) + thin colored visible path
       return `<path class="edge" d="${d}" fill="none" stroke="transparent" stroke-width="16"
         data-from="${e.from}" data-to="${e.to}"><title>${esc(byId.get(e.from)?.name ?? "")} ← ${esc(byId.get(e.to)?.name ?? "")} · ${fmt(e.count)} طريق — اضغط لرواياته</title></path>
-      <path class="edge-vis" data-from="${e.from}" data-to="${e.to}" d="${d}"
+      <path class="edge-vis" data-key="${e.from}>${e.to}" data-from="${e.from}" data-to="${e.to}" d="${d}"
         fill="none" stroke="${color}" stroke-width="${w.toFixed(1)}" opacity="${op.toFixed(2)}" pointer-events="none"></path>`;
     }).join("");
 
@@ -206,6 +206,8 @@ export function mountIsnadTree(container, tree, { budget = 46, fetchRawi, onEdge
           <text x="${p.x}" y="${p.y + NODE_H / 2 + 6}" text-anchor="middle" dominant-baseline="middle" fill="var(--accent)" font-size="10.5" font-weight="600">+${fmt(hid)}</text></g>` : ""}
       </g>`;
     }).join("");
+
+    if (typeof paintPinned === "function") paintPinned();  // re-apply the pinned chain to the fresh DOM
 
     note.textContent = expandedAll
       ? `عرض كل الرواة (${fmt(vNodes.length)})`
@@ -423,10 +425,64 @@ export function mountIsnadTree(container, tree, { budget = 46, fetchRawi, onEdge
     }
   });
 
+  /* ── تتبّعُ السلسلة كاملةً ──────────────────────────────────────────────
+   * A pinned route is drawn as ONE continuous line along its whole length
+   * (prophet → author), colored by its own grade — ضعيف dashes red the entire
+   * way — while the rest of the network dims. This is the difference between
+   * "each link colored separately" and actually FOLLOWING a سلسلة. */
+  let pinned = null;                       // the pinned route object, or null
+  const GRADE_STROKE = { sahih: "var(--ok)", hasan: "var(--gold)",
+                         daif: "var(--warn)", mawdu: "var(--critical)" };
+  function paintPinned() {
+    const eds = [...gEdges.querySelectorAll(".edge-vis")];
+    const nds = [...gNodes.querySelectorAll(".tnode")];
+    if (!pinned) {                         // clear: back to per-link colors
+      eds.forEach((p) => p.classList.remove("chain-on", "chain-off"));
+      nds.forEach((g) => g.classList.remove("chain-on", "chain-off"));
+      return;
+    }
+    const keys = new Set();
+    for (let i = 1; i < pinned.path.length; i++) keys.add(`${pinned.path[i - 1]}>${pinned.path[i]}`);
+    const ids = new Set(pinned.path.map(String));
+    const stroke = GRADE_STROKE[pinned.gradeKey] ?? "var(--accent)";
+    const weak = pinned.gradeKey === "daif" || pinned.gradeKey === "mawdu";
+    for (const p of eds) {
+      const on = keys.has(p.dataset.key);
+      p.classList.toggle("chain-on", on);
+      p.classList.toggle("chain-off", !on);
+      if (on) {
+        p.style.stroke = stroke;
+        p.style.strokeWidth = "3.4";
+        p.style.opacity = "1";
+        p.style.strokeDasharray = weak ? "7 4" : "";
+      } else { p.style.stroke = ""; p.style.strokeWidth = ""; p.style.opacity = ""; p.style.strokeDasharray = ""; }
+    }
+    for (const g of nds) {
+      const on = ids.has(g.dataset.id);
+      g.classList.toggle("chain-on", on);
+      g.classList.toggle("chain-off", !on);
+    }
+  }
+  /** Pin a route (object from tree.routes) or clear with null. */
+  function pinRoute(route) {
+    pinned = route && route.path?.length ? route : null;
+    // make sure every narrator of the pinned chain is actually on screen
+    if (pinned) {
+      let grew = false;
+      for (const id of pinned.path) if (!visible.has(id)) { visible.add(id); grew = true; }
+      if (grew) render();
+    }
+    paintPinned();
+    return pinned;
+  }
+
   // hover a node → light its routes; hover an edge → light just that edge
-  const litReset = () =>
+  const litReset = () => {
+    if (pinned) return paintPinned();      // a pinned chain outranks hover
     gEdges.querySelectorAll(".edge-vis").forEach((p) => { p.style.stroke = ""; p.style.opacity = ""; });
+  };
   svg.addEventListener("mouseover", (e) => {
+    if (pinned) return;                    // don't fight the pinned chain
     const g = e.target.closest(".tnode");
     if (g) {
       const id = g.dataset.id;
@@ -471,6 +527,7 @@ export function mountIsnadTree(container, tree, { budget = 46, fetchRawi, onEdge
   const onKey = (e) => {
     if (e.key !== "Escape") return;
     if (!pop.hidden) { hidePopup(); return; }
+    if (pinned) { pinRoute(null); container.dispatchEvent(new CustomEvent("chain:clear")); return; }
     if (container.classList.contains("tree-fullscreen")) {
       container.classList.remove("tree-fullscreen");
       document.body.classList.remove("tree-fs-open");
@@ -482,6 +539,8 @@ export function mountIsnadTree(container, tree, { budget = 46, fetchRawi, onEdge
   render();
 
   return {
+    pinRoute,                       // تتبّع السلسلة: pin a whole route, or null to clear
+    isPinned: () => pinned,
     destroy() {
       document.removeEventListener("keydown", onKey);
       document.body.classList.remove("tree-fs-open");

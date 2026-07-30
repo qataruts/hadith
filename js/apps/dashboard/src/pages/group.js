@@ -43,6 +43,10 @@ export async function groupPage({ args: [id], params }) {
     <h3 style="margin:0 0 4px" data-group="${g.groupId}" id="tree-anchor">شجرة الإسناد <span class="tag-count">لون كل راوٍ = درجته · لون الخط = أضعف حلقة</span></h3>
     <div class="gfilters" id="tree-filters"></div>
     <div class="row" id="tree-head" style="margin:6px 0"></div>
+    <div id="routes-bar-wrap" hidden>
+      <div class="muted" style="font-size:12px;margin:2px 0 3px">تتبَّعْ سلسلةً كاملةً: اضغطْ طريقاً ليُضاءَ مسارُه كلُّه في الرسم (Esc أو «كل الطرق» للإلغاء)</div>
+      <div class="routes-bar" id="routes-bar"></div>
+    </div>
     <div id="isnad-tree"><div class="skeleton" style="height:300px"></div></div>
     <div class="muted" style="margin-top:8px;line-height:1.9">
       <strong style="color:var(--ink-2)">كيف نلخّص؟</strong> يبدأ الرسم بعرضٍ مختصرٍ يُبرز الرواة الأكثر وروداً في الطرق
@@ -165,9 +169,49 @@ async function loadTree(patch = {}) {
         return api.groupEdge(gs.groupId, from, to, f).then((r) => r.narrations);
       },
     });
+    renderRoutesBar(tree.routes ?? []);
   } catch (e) {
     holder.innerHTML = `<div class="empty">تعذر رسم الشجرة — ${esc(e.message)}</div>`;
   }
+}
+
+/* شريط الطرق — every route of this meaning as a chip; pressing one lights its
+ * whole سلسلة in the tree (and pressing again, or «كل الطرق», releases it). */
+function renderRoutesBar(routes) {
+  const wrap = document.getElementById("routes-bar-wrap");
+  const bar = document.getElementById("routes-bar");
+  if (!wrap || !bar) return;
+  if (routes.length < 2) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+  const GL = { sahih: "صحيح", hasan: "حسن", daif: "ضعيف", mawdu: "موضوع" };
+  bar.innerHTML = `<button class="route-chip on" data-route="-1">كل الطرق</button>`
+    + routes.map((r, i) => {
+      const weak = r.gradeKey === "daif" || r.gradeKey === "mawdu";
+      return `<button class="route-chip${weak ? " weak" : ""}" data-route="${i}"
+        title="${esc(r.grade ?? "")}${r.problem ? " — في السند مدلِّسٌ أو مختلِطٌ معنعَن" : ""}">
+        ${esc(r.book ?? "—")}${r.problem ? " ⚑" : ""}
+        <span class="rc-grade">${GL[r.gradeKey] ?? "—"}</span></button>`;
+    }).join("");
+  bar.onclick = (e) => {
+    const b = e.target.closest(".route-chip");
+    if (!b || !treeInstance?.pinRoute) return;
+    const i = Number(b.dataset.route);
+    const already = b.classList.contains("on");
+    bar.querySelectorAll(".route-chip").forEach((x) => x.classList.remove("on"));
+    if (i < 0 || already) {                      // release → back to all routes
+      treeInstance.pinRoute(null);
+      bar.querySelector('[data-route="-1"]').classList.add("on");
+      return;
+    }
+    b.classList.add("on");
+    treeInstance.pinRoute(routes[i]);
+    document.getElementById("tree-anchor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  // Esc inside the tree clears the pin → keep the bar in sync
+  document.getElementById("isnad-tree")?.addEventListener("chain:clear", () => {
+    bar.querySelectorAll(".route-chip").forEach((x) => x.classList.remove("on"));
+    bar.querySelector('[data-route="-1"]')?.classList.add("on");
+  });
 }
 
 function renderFilters() {

@@ -3,6 +3,7 @@
  * grade, and whether the MEANING is authenticated by any route. Absence is a
  * coverage statement, never «لا أصل له». It only reports recorded gradings. */
 import { api, nibrasComposeStream } from "../api.js";
+import { getScopeIds } from "../components/scope.js";
 import { esc, fmt, gradeBadge } from "../util.js";
 
 let streamAbort = null;
@@ -47,7 +48,7 @@ function run() {
     prose.innerHTML = `<div class="muted" style="font-size:12px;margin-bottom:4px">قراءة نبراس</div>
       <div style="font-size:16px;line-height:2;white-space:pre-wrap">${esc(text).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")}</div>`;
   };
-  nibrasComposeStream({ claim: q }, {
+  nibrasComposeStream({ claim: q, books: getScopeIds() ?? undefined }, {
     onCheck: (chk) => { struct.innerHTML = render(chk); },
     onDelta: (t) => { text += t; paint(); },
     onNokey: () => { /* structured result already shown; no composed reading without a key */ },

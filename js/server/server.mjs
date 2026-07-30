@@ -679,19 +679,24 @@ async function geminiJson(system, contents, schema, { model = CHAT_MODEL, maxOut
 // نبراس · gated meaning retrieval — one query embedding ranks BOTH tiers (marfū'
 // groups + آثār), merged and trimmed by the Quran «نِبراس» gate so a draft rests
 // on hadith that genuinely cohere. Returns unified material (matn + book + grade).
-async function retrieveNibras(query, { limit = 12 } = {}) {
+async function retrieveNibras(query, { limit = 12, scope = null } = {}) {
   if (!GEMINI_KEY) return { error: "GEMINI_API_KEY not set on server", hits: null };
   let qv;
   try { qv = await embedQuery(query); } catch (e) { return { error: String(e.message ?? e), hits: null }; }
+  // scoped → over-fetch each tier, since out-of-scope candidates get dropped below
+  const fetchN = scope ? 60 : 24;
   const [g, a] = await Promise.all([
-    semanticGroups(query, 24, qv).catch(() => ({ hits: [] })),
-    semanticAthar(query, 24, qv).catch(() => ({ hits: [] })),
+    semanticGroups(query, fetchN, qv).catch(() => ({ hits: [] })),
+    semanticAthar(query, fetchN, qv).catch(() => ({ hits: [] })),
   ]);
+  const inClause = scope ? ` AND book_id IN (${[...scope].join(",")})` : "";
   const marfu = [];
   for (const h of g.hits ?? []) {                       // group → its strongest narration (real grade)
+    // when a book scope is active the representative MUST come from it — a meaning
+    // not attested in the selected books is dropped (التخريج منضبط بالنطاق)
     const rep = kg.prepare(
       `SELECT id, taraf_nass taraf, book_id, matn grade, matn_no lv, no_inbook FROM hadiths
-       WHERE group_id = ? AND taraf_nass IS NOT NULL ORDER BY matn_no LIMIT 1`).get(h.groupId);
+       WHERE group_id = ? AND taraf_nass IS NOT NULL${inClause} ORDER BY matn_no LIMIT 1`).get(h.groupId);
     // gently prefer the authentic within the semantic matches: صحيح +0.05 … موضوع −0.05
     const gradeBoost = rep && rep.lv >= 0 ? (2.5 - rep.lv) * 0.02 : 0;
     if (rep?.taraf) marfu.push({ score: h.score + gradeBoost, hadithId: rep.id, groupId: h.groupId, kind: "مرفوع",
@@ -701,7 +706,8 @@ async function retrieveNibras(query, { limit = 12 } = {}) {
   for (const h of a.hits ?? []) {                        // آثار carry no صحيح/ضعيف grade (matn = the type)
     const rep = kg.prepare(
       `SELECT taraf_nass taraf, book_id, no_inbook, type FROM hadiths WHERE id = ?`).get(h.hadithId);
-    if (rep?.taraf) athar.push({ score: h.score, hadithId: h.hadithId, kind: rep.type ?? "أثر",
+    if (!rep?.taraf || (scope && !scope.has(rep.book_id))) continue;
+    athar.push({ score: h.score, hadithId: h.hadithId, kind: rep.type ?? "أثر",
       matn: rep.taraf, book: bookName.get(rep.book_id), noInBook: rep.no_inbook, hukm: null });
   }
   // gate each tier on its own top, so marfū' (primary) and آثār (supplementary) are both kept
@@ -785,6 +791,10 @@ async function nibrasComposeHandler(req, res, body) {
   const claim = String(body.claim ?? "").slice(0, 4000).trim();
   if (claim.length < 4) throw new Error("claim too short");
   const history = Array.isArray(body.history) ? body.history.slice(-6) : [];
+  // the caller's book scope rides the body → forwarded to the in-process check,
+  // so a تحقّق stays منضبط within the selected books
+  const scopeCsv = Array.isArray(body.books) && body.books.length
+    ? body.books.map(Number).filter(Boolean).join(",") : null;
   const subject = Number(body.subject) || null;
   const followup = subject && looksLikeQuestion(claim);
 
@@ -809,7 +819,7 @@ async function nibrasComposeHandler(req, res, body) {
   }
 
   // ── new claim: check + verdict ──
-  const chk = await callApi("/api/nibras/check", { q: claim });
+  const chk = await callApi("/api/nibras/check", scopeCsv ? { q: claim, books: scopeCsv } : { q: claim });
   send({ type: "check", check: chk });
   if (chk && chk.status === "found") send({ type: "subject", id: chk.best.hadithId });
   if (!GEMINI_KEY) { send({ type: "nokey" }); send({ type: "done" }); res.end(); return; }
@@ -943,12 +953,16 @@ const routes = {
       chains.set(r.sanad_id, c);
     }
 
+    // corroboration weighs ALL routes; an active book scope only LABELS supports
+    // from outside the selected books («مبصرٌ في الاعتبار») — it never drops them
+    const bScope = parseBookScope(u);
     const tamma = [], qasira = [], shawahid = [];
     for (const [sid, c] of chains) {
       if (sid === refSanadId) continue;
       const seq = [...c.rows].reverse();                        // [0] = Companion
       const comp = seq[0]?.rawi_id;
-      const base = { hadithId: c.hadithId, bookId: c.bookId, grade: c.grade };
+      const base = { hadithId: c.hadithId, bookId: c.bookId, grade: c.grade,
+                     inScope: !bScope || bScope.has(c.bookId) };
       if (comp !== S) { shawahid.push(base); continue; }        // different Companion → witness
       const shPos = seq.findIndex((x) => x.rawi_id === Sh.rawi_id);
       if (shPos >= 0) {
@@ -975,7 +989,8 @@ const routes = {
         seen.add(x.hadithId);
         const d = byH.get(x.hadithId);
         out.push({ hadithId: x.hadithId, book: bookName.get(x.bookId), noInBook: d?.noInBook,
-                   taraf: d?.taraf, hukm: d?.hukm ?? x.grade, via: x.via, note: x.note });
+                   taraf: d?.taraf, hukm: d?.hukm ?? x.grade, via: x.via, note: x.note,
+                   ...(bScope ? { inScope: x.inScope } : {}) });
       }
       return out.slice(0, 60);
     };
@@ -1007,10 +1022,15 @@ const routes = {
         ?? { hadithId: r.hadith_id, grade: r.grade, bookId: r.book_id, rows: [] };
       c.rows.push(r); byS.set(r.sanad_id, c);
     }
+    // «منضبطٌ في البحث، مبصرٌ في الاعتبار»: the board always weighs ALL routes —
+    // restricting corroboration to a book subset would corrupt الاعتبار itself —
+    // but when a scope is active every route is LABELED in/out so the researcher
+    // knows exactly which support comes from outside the selected books.
     const bScope = parseBookScope(u);
     const seqs = [...byS.entries()].map(([sid, c]) => ({ sid, ...c, seq: [...c.rows].reverse() }))
-      .filter((s) => s.seq.length >= 2 && (!bScope || bScope.has(s.bookId)));
-    if (!seqs.length) return { available: true, empty: true, scoped: !!bScope };
+      .filter((s) => s.seq.length >= 2)
+      .map((s) => ({ ...s, inScope: !bScope || bScope.has(s.bookId) }));
+    if (!seqs.length) return { available: true, empty: true };
 
     // dominant Companion, then the madār among his routes (the pivot most routes
     // pass through, preferring the one closest to the Companion)
@@ -1064,7 +1084,7 @@ const routes = {
         if (!below || below.rawi_id === R) continue;
       }
       const comp = s.seq[0].rawi_id;
-      const base = { hadithId: s.hadithId, bookId: s.bookId, grade: s.grade };
+      const base = { hadithId: s.hadithId, bookId: s.bookId, grade: s.grade, inScope: s.inScope };
       if (comp !== S) { shawahid.push(base); continue; }        // another Companion → witness
       const shPos = s.seq.findIndex((x) => x.rawi_id === Sh.rawi_id);
       if (shPos >= 0) {
@@ -1085,11 +1105,13 @@ const routes = {
         seen.add(x.hadithId);
         const d = byH.get(x.hadithId);
         out.push({ hadithId: x.hadithId, book: bookName.get(x.bookId), noInBook: d?.noInBook,
-                   taraf: d?.taraf, hukm: d?.hukm ?? x.grade, via: x.via, note: x.note });
+                   taraf: d?.taraf, hukm: d?.hukm ?? x.grade, via: x.via, note: x.note,
+                   ...(bScope ? { inScope: x.inScope } : {}) });
       }
       return out.slice(0, 80);
     };
     const c = { tamma: tamma.length, qasira: qasira.length, shawahid: shawahid.length };
+    const outOfScope = bScope ? [...tamma, ...qasira, ...shawahid].filter((x) => !x.inScope).length : 0;
     const verdict = c.tamma > 0
       ? { level: "strong", text: `تُوبِع ${Rn.nickname} متابعةً تامّةً (${c.tamma}) — روى عن شيخه غيرُه، فالمدار غيرُ متفرِّد.` }
       : (c.qasira + c.shawahid > 0)
@@ -1111,6 +1133,7 @@ const routes = {
           isFocus: x.rawi_id === R, isCompanion: i === 0, isMadar: x.rawi_id === madarId })),
       tamma: enrich(tamma), qasira: enrich(qasira), shawahid: enrich(shawahid),
       counts: c, verdict,
+      scope: bScope ? { active: true, outOfScope } : null,
     };
   },
 
@@ -1391,7 +1414,7 @@ const routes = {
     for (const r of rows) {
       if (bookScope && r.book_id != null && !bookScope.has(r.book_id)) continue;  // corpus scope
       const c = chains.get(r.sanad_id)
-        ?? { grade: r.grade, bookId: r.book_id, rawis: [], problem: false };
+        ?? { grade: r.grade, bookId: r.book_id, hadithId: r.hadith_id, rawis: [], problem: false };
       c.rawis.push(r);           // pos ascending: 0 = author … last = sahabi
       if (isMudallisWeak(r)) c.problem = true;
       chains.set(r.sanad_id, c);
@@ -1412,8 +1435,9 @@ const routes = {
     }]]);
     const edges = new Map();     // "from>to" -> {from, to, count}
     const authorBooks = new Map(); // author rawi_id -> Map(book_id -> route count)
+    const routePaths = [];       // each surviving chain as a node path, for whole-chain highlighting
     let used = 0;
-    for (const c of chains.values()) {
+    for (const [sanadId, c] of chains) {
       const rw = c.rawis;
       const last = rw[rw.length - 1];
       if (sahabiFilter && last.rawi_id !== sahabiFilter) continue;
@@ -1455,6 +1479,13 @@ const routes = {
           edges.set(key, e);
         }
       }
+      // the whole route as an ordered node path — lets the client light up an
+      // entire سلسلة (prophet → author) instead of one edge at a time
+      routePaths.push({
+        sanadId, hadithId: c.hadithId, grade: c.grade, gradeKey: gradeKey(c.grade),
+        book: c.bookId != null ? bookName.get(c.bookId) : null, bookId: c.bookId ?? null,
+        problem: c.problem, path: seq.map((x) => x.rawi_id),
+      });
     }
     const isMarker = (name = "") =>
       /موضع (انقطاع|ارسال|إرسال|تعليق|إعضال)|مبهم|غير معرف/.test(name);
@@ -1493,6 +1524,12 @@ const routes = {
     return {
       groupId: Number(id), chains: used, totalChains: chains.size,
       nodes: nodeList, edges: [...edges.values()],
+      // whole-route paths for chain highlighting; weakest/most-problematic first
+      // so the researcher's eye lands on what needs scrutiny (capped for payload)
+      routes: routePaths
+        .sort((a, b) => (b.problem ? 1 : 0) - (a.problem ? 1 : 0)
+                     || (a.gradeKey === "sahih" ? 1 : 0) - (b.gradeKey === "sahih" ? 1 : 0))
+        .slice(0, 300),
       madar: madar ? { rawiId: madar.rawiId, name: madar.name, count: madar.middleCount } : null,
       sahabis, grades, books,
       filters: { sahabi: sahabiFilter || null, grade: gradeFilter || null,
@@ -1702,7 +1739,7 @@ const routes = {
   "GET /api/nibras/retrieve": async (u) => {
     const qs = (u.searchParams.get("q") ?? "").trim();
     if (qs.length < 3) return { hits: [] };
-    return retrieveNibras(qs, { limit: clamp(u.searchParams.get("limit"), 12, 16) });
+    return retrieveNibras(qs, { limit: clamp(u.searchParams.get("limit"), 12, 16), scope: parseBookScope(u) });
   },
 
   // Retrieval context for a RAG chat: semantic + FTS merged at the meaning
@@ -1842,7 +1879,26 @@ const routes = {
   "GET /api/nibras/topic-audit/:id": async (_u, id) => {
     const t = kg.prepare("SELECT id, name, lft, rgt, tree_id FROM topics WHERE id = ?").get(Number(id));
     if (!t) return null;
-    const idx = groupGradeIndex();
+    const bScope = parseBookScope(u);
+    // scoped → recompute the subtree's grade counts within the selected books
+    // (one SQL over the subtree); unscoped → the warmed corpus-wide index.
+    const idx = bScope
+      ? (() => {
+          const m = new Map();
+          const rows = kg.prepare(
+            `SELECT h.group_id gid, s.matn_no lv, COUNT(*) c
+             FROM topics tp JOIN hadiths h ON h.group_id = tp.group_id
+             JOIN sanads s ON s.hadith_id = h.id
+             WHERE tp.tree_id = ? AND tp.lft BETWEEN ? AND ?
+               AND h.book_id IN (${[...bScope].join(",")})
+             GROUP BY 1, 2`).all(t.tree_id, t.lft, t.rgt);
+          for (const r of rows) {
+            const a = m.get(r.gid) ?? m.set(r.gid, new Int32Array(7)).get(r.gid);
+            a[r.lv >= 0 && r.lv <= 5 ? r.lv : 6] += r.c;
+          }
+          return m;
+        })()
+      : groupGradeIndex();
     const subGroups = kg.prepare(
       "SELECT DISTINCT group_id gid FROM topics WHERE tree_id = ? AND lft BETWEEN ? AND ? AND group_id IS NOT NULL");
     const sum = (lft, rgt) => {

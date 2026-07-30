@@ -11,6 +11,7 @@ const list = (arr, empty) => arr.length
       <a class="edge-item" href="#/hadith/${h.hadithId}">
         <div class="edge-item-head">
           <span class="muted">${esc(h.book ?? "")}${h.noInBook ? ` · ${fmt(h.noInBook)}` : ""}${h.via ? ` — عن طريق ${esc(h.via)}` : ""}${h.note ? ` — ${esc(h.note)}` : ""}</span>
+          ${h.inScope === false ? `<span class="badge scope-out" title="هذه الدعامة من كتابٍ خارج نطاق الكتب الذي حدّدته — تُعرض لأن الاعتبار يزن المصنَّف كله">خارج النطاق</span>` : ""}
           ${gradeBadge(h.hukm)}
         </div>
         ${h.taraf ? `<div class="edge-item-matn">${esc(h.taraf)}</div>` : ""}
