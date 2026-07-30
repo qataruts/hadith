@@ -1084,6 +1084,51 @@ function upliftFor(hadithId, scope = null) {
     verdict };
 }
 
+// ── صيغُ الأداء وعنعنةُ المدلسين (م٣) ────────────────────────────────────────
+// A mudallis who says «عن» (not «سمعت/حدثنا») may have dropped an unheard shaykh
+// (تدليس). We read the ACTUAL wording of THIS narration — the text the source
+// stored between two narrators (hadith_rawis char offsets) — and classify the
+// صيغة, so the flag is about this specific isnad, not a generic «فيه مدلّس».
+// Computed live from the nass (no precompute/Gemini). \b is ASCII-only in JS, so
+// we space-bound after stripping tashkīl + non-Arabic.
+const SIGHA = (raw) => {
+  const t = " " + (raw || "").replace(/[ً-ْٰـ]/g, "").replace(/[^؀-ۿ]/g, " ").replace(/\s+/g, " ").trim() + " ";
+  if (/ سمعت | سمعنا /.test(t)) return "سماع";
+  if (/ حدثنا | حدثني | حدثه | ثنا /.test(t)) return "تحديث";
+  if (/ اخبرنا | اخبرني | اخبره | انبانا | انبانى /.test(t)) return "إخبار";
+  if (/ عن /.test(t)) return "عنعنة";
+  if (/ ان | انه | انها /.test(t)) return "أنّ";
+  return "غير بيّن";
+};
+const SIGHA_EXPLICIT = new Set(["سماع", "تحديث", "إخبار"]);   // تصريحٌ بالتحمّل = سلامةٌ من التدليس
+
+function sighaFor(hadithId) {
+  const rows = kg.prepare(
+    `SELECT hr.seq, hr.rawi_id, hr.start, hr.end, r.nickname, r.has_tadlis, r.has_ikhtilat
+     FROM hadith_rawis hr JOIN rawis r ON r.id = hr.rawi_id
+     WHERE hr.hadith_id = ? ORDER BY hr.seq`).all(Number(hadithId));
+  if (rows.length < 2) return { available: false, flags: [] };
+  const nass = kg.prepare("SELECT nass FROM hadiths WHERE id = ?").get(Number(hadithId))?.nass || "";
+  const flags = [];
+  for (let i = 0; i < rows.length - 1; i++) {
+    const r = rows[i];
+    if (!r.has_tadlis && !r.has_ikhtilat) continue;
+    const sigha = SIGHA(nass.slice(r.end, rows[i + 1].start));   // r's own أداة toward his shaykh
+    if (r.has_tadlis) {
+      const anan = sigha === "عنعنة";
+      flags.push({ rawiId: r.rawi_id, name: r.nickname, kind: "tadlis", sigha, risk: anan,
+        note: anan ? `عنعن ${r.nickname} (مدلِّسٌ) عن شيخه ولم يُصرِّحْ بالسماع — مظنّةُ تدليس`
+          : SIGHA_EXPLICIT.has(sigha) ? `${r.nickname} مدلِّسٌ، لكنّه صرّح بالتحمّل هنا (${sigha}) — فلا تدليسَ في هذا الموضع`
+            : `${r.nickname} مدلِّسٌ، وصيغةُ أدائه هنا غيرُ بيّنة` });
+    } else {
+      flags.push({ rawiId: r.rawi_id, name: r.nickname, kind: "ikhtilat", sigha, risk: false,
+        note: `${r.nickname} اختلط بأَخَرة — يُنظر أسمِعَ الراوي عنه قبلَ الاختلاطِ أم بعده` });
+    }
+  }
+  const anan = flags.filter((f) => f.risk);
+  return { available: true, flags, anan: anan.length, tadlisSafe: flags.filter((f) => f.kind === "tadlis" && !f.risk && SIGHA_EXPLICIT.has(f.sigha)).length };
+}
+
 // ---- routes -----------------------------------------------------------------
 const routes = {
   "GET /api/stats": async (u) => {
@@ -1557,6 +1602,9 @@ const routes = {
   // هل تحقّق شرطُ «يحسن إذا توبع»؟ — checks the group for an independent supporter.
   // «مبصرٌ في الاعتبار»: sees all books, marks out-of-scope supporters.
   "GET /api/hadith/:id/uplift": async (u, id) => upliftFor(id, parseBookScope(u)),
+
+  // صيغُ الأداء: عنعنةُ المدلسين في هذه الروايةِ بعينها (لا رايةٌ عامّة).
+  "GET /api/hadith/:id/sigha": async (_u, id) => sighaFor(id),
 
   "GET /api/hadith/:id/why": async (_u, id) => {
     const rows = q.whyRows.all(Number(id));
@@ -2265,6 +2313,8 @@ const routes = {
     const D = { tadlis: "تدليس", ikhtilat: "اختلاط", inqita: "انقطاع" };
     const defects = new Set();
     for (const s of why?.sanads ?? []) for (const o of s.observations ?? []) if (D[o.type]) defects.add(o.type);
+    // precise عنعنة: read the ACTUAL أداة of any mudallis in THIS narration
+    const sigha = sighaFor(hid);
 
     const LV = ["صحيح", "حسن", "ضعيف", "شديد الضعف", "متهم بالوضع", "موضوع"];
     const GRADE_AR = { sahih: "صحيح", hasan: "حسن", daif: "ضعيف", mawdu: "موضوع/منكر", other: "غير محدَّد" };
@@ -2281,9 +2331,19 @@ const routes = {
       detail: breaks ? `فيه ${breaks} موضع انقطاعٍ مُثبَت في بعض الطرق`
         : suspects ? `${suspects} موضعٌ يُتحقَّق من سماعه (تنبيه استشاري لا حكم)`
         : "ظاهرُ إسناده الاتصال" });
-    if (defects.size)
+    // precise عنعنة takes precedence over the generic tadlis flag
+    if (sigha.anan > 0) {
+      const first = sigha.flags.find((f) => f.risk);
+      signals.push({ label: "عنعنةُ مدلِّس", tone: "warn",
+        detail: `${first.note}${sigha.anan > 1 ? ` (وغيرُه: ${sigha.anan} موضعًا)` : ""}` });
+    } else if (sigha.tadlisSafe > 0 && !defects.has("tadlis")) {
+      signals.push({ label: "التدليس", tone: "good",
+        detail: "في السند مدلِّسٌ، لكنّه صرّح بالسماع في هذه الرواية — فلا تدليس" });
+    }
+    const otherDefects = [...defects].filter((d) => !(d === "tadlis" && (sigha.anan > 0 || sigha.tadlisSafe > 0)));
+    if (otherDefects.length)
       signals.push({ label: "علل الرواة", tone: "warn",
-        detail: "في بعض طرقه: " + [...defects].map((d) => D[d]).join("، ") });
+        detail: "في بعض طرقه: " + otherDefects.map((d) => D[d]).join("، ") });
     if (meaning?.bestLv != null)
       signals.push({ label: "ثبوت المعنى", tone: meaning.bestLv <= 1 ? "good" : "neutral",
         detail: `ورد المعنى من ${meaning.routes} طريقاً، أقواها ${LV[meaning.bestLv] ?? "غير محدَّد"}` });
