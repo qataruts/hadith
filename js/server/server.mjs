@@ -1363,8 +1363,18 @@ const routes = {
       c.matn = [...c.forms].sort((a, b) => b[1] - a[1] || b[0].length - a[0].length)[0][0];
     const list = [...clusters.values()].sort((a, b) => b.routes.length - a.routes.length);
     const base = list[0];
+    // grade-class profile of a cluster's routes (for the شذوذ/نكارة signal below)
+    const SOUND = new Set(["sahih", "hasan"]), WEAK = new Set(["daif", "mawdu"]);
+    const gradeProfile = (c) => {
+      const g = c.routes.map((r) => gradeKey(r.grade));
+      return { set: [...new Set(g)], sound: g.some((x) => SOUND.has(x)),
+               allWeak: g.length > 0 && g.every((x) => WEAK.has(x)),
+               anySound: g.some((x) => SOUND.has(x)) };
+    };
+    const baseGP = gradeProfile(base);
     if (list.length < 2)
-      return { available: true, uniform: true, totalRoutes: routes.length, base: { matn: base.matn, routes: base.routes.length } };
+      return { available: true, uniform: true, totalRoutes: routes.length,
+               base: { matn: base.matn, routes: base.routes.length, grades: baseGP.set } };
 
     // narrator → set of routes passing through him (for wording purity)
     const through = new Map();
@@ -1394,28 +1404,53 @@ const routes = {
       // substantive transmission event) vs near the books (late — likely a
       // compiler's phrasing). depth counts from the Companion (1 = at him).
       const era = depth <= 1 ? "companion" : depth <= Math.ceil(chainLen * 0.45) ? "early" : "late";
+      const gp = gradeProfile(c);
+      const purity = Math.round((c.routes.length / throughX) * 100);
+      // إشارةُ المخالفة/الشذوذ (محسوبةٌ، مظنّةٌ لا حكم): لفظٌ يخالفُ الأكثرَ
+      //   • نكارة: تنفردُ به طرقٌ ضعيفةٌ كلُّها، والأصلُ المحفوظُ (الأكثر) صحيحٌ/حسن.
+      //   • شذوذ: لفظٌ لا يعضُدُه صحيحٌ ألبتّةَ والمحفوظُ خلافُه، أو انفردَ به قليلٌ
+      //     صحيحٌ عاليُ الخصوصيّةِ فخالفَ الأكثرَ الأصحَّ (زيادةٌ يُنظرُ فيها).
+      // الشرطُ الحاكم: أن يكونَ الأصلُ (base) أصحَّ وأكثرَ، فالمخالفةُ حينئذٍ مظنّة.
+      let deviation = null;
+      const baseStronger = baseGP.anySound && base.routes.length > c.routes.length;
+      if (baseStronger && depth > 1) {                 // مخالفةٌ فوق الصحابيّ فقط
+        if (gp.allWeak)
+          deviation = { level: "munkar",
+            text: "لفظٌ تنفردُ به طرقٌ ضعيفةٌ، والأكثرُ الأصحُّ على خلافه — مظنّةُ نكارة" };
+        else if (!gp.anySound)
+          deviation = { level: "shadh",
+            text: "لفظٌ لا يعضُدُه طريقٌ صحيح، والمحفوظُ خلافُه — مظنّةُ شذوذ" };
+        else if (purity >= 80 && c.routes.length * 3 <= base.routes.length)
+          deviation = { level: "review",
+            text: "لفظٌ انفردَ به طريقٌ قليلٌ مع صحّته وخالفَ الأكثرَ — يُنظرُ فيه (زيادةُ ثقةٍ أو شذوذ)" };
+      }
       findings.push({
         narrator: { rawiId: Xnode.rawi_id, name: Xnode.nickname, tabaka: Xnode.tabaka ?? null },
         atCompanion: depth === 1, era, depth,
         matn: c.matn,
         routes: c.routes.length,
         throughX,
-        purity: Math.round((c.routes.length / throughX) * 100),   // how private the wording is to X
+        purity,                                         // how private the wording is to X
         books,
         sample: c.routes[0].hadithId,
-        grades: [...new Set(c.routes.map((r) => gradeKey(r.grade)))],
+        grades: gp.set,
+        deviation,
       });
     }
     findings.sort((a, b) => b.routes * (b.purity / 100) - a.routes * (a.purity / 100));
     const inFindings = findings.reduce((s, f) => s + f.routes, 0);
+    const flagged = findings.slice(0, 15).filter((f) => f.deviation);
     return {
       available: true,
       groupId, totalRoutes: routes.length,
       distinctWordings: list.length,
-      base: { matn: base.matn, routes: base.routes.length },
+      base: { matn: base.matn, routes: base.routes.length, grades: baseGP.set },
       uniformRoutes: base.routes.length,
       analysed: inFindings,
       findings: findings.slice(0, 15),
+      deviations: { munkar: flagged.filter((f) => f.deviation.level === "munkar").length,
+                    shadh: flagged.filter((f) => f.deviation.level === "shadh").length,
+                    review: flagged.filter((f) => f.deviation.level === "review").length },
     };
   },
 

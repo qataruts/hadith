@@ -146,6 +146,25 @@ h1 { font-size: 1.9em; }
 /* «مبصرٌ في الاعتبار»: a corroborating route from outside the active book scope */
 .badge.scope-out { background: var(--surface-2); color: var(--ink-3); border: 1px dashed var(--ink-3); }
 
+/* ICMA — grade-class chips + مظنّةُ المخالفة/الشذوذ (م٢) */
+.gclass-row { display: inline-flex; gap: 5px; flex-wrap: wrap; }
+.gclass {
+  font-size: 11px; font-weight: 600; line-height: 1; padding: 3px 8px; border-radius: 999px;
+  color: var(--gc); background: color-mix(in srgb, var(--gc) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--gc) 40%, transparent);
+}
+.icma-flagged { border-inline-start: 4px solid var(--dv, var(--warn)); }
+.icma-dev {
+  display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; margin: -2px 0 10px;
+  padding: 8px 11px; border-radius: 10px;
+  background: color-mix(in srgb, var(--dv) 9%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--dv) 35%, transparent);
+}
+.icma-dev-tag { flex: none; font-weight: 700; font-size: 12.5px; color: var(--dv);
+  padding: 2px 9px; border-radius: 999px; background: color-mix(in srgb, var(--dv) 16%, var(--surface)); }
+.icma-dev-text { font-size: 13px; color: var(--ink-2); line-height: 1.7; }
+.icma-dev-head { border-inline-start: 5px solid var(--critical); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
 /* تتبّعُ السلسلة — a pinned route reads as one continuous line; the rest recedes */
 .edge-vis, .tnode { transition: opacity .16s ease; }
 .edge-vis.chain-off { opacity: .1 !important; }
