@@ -31,6 +31,11 @@ const PORT = Number(arg("port", 8077));
 const HOST = arg("host", "127.0.0.1");
 const STATIC_DIR = arg("static", path.resolve(HERE, "../apps/dashboard/dist"));
 const CHAT_MODEL = arg("chat-model", "gemini-2.5-flash");
+// تدريجُ النماذج (نمط «مشكاة»): جولاتُ التخطيط والأدوات على الخفيف دائمًا،
+// والصياغةُ الختامية تُرفَعُ إلى الأقوى بمتغيّرِ بيئةٍ واحد — NIBRAS_TIER=pro —
+// أو تُضبطُ نصًّا عبر COMPOSE_MODEL. الافتراضُ: الخفيفُ في كلِّ شيء.
+const COMPOSE_MODEL = process.env.COMPOSE_MODEL
+  || (process.env.NIBRAS_TIER === "pro" ? "gemini-2.5-pro" : CHAT_MODEL);
 
 const db = createDb(APP_DB, {
   plugins: [fts({ hadiths: ["matnClean"], groups: ["nassClean"] })],
@@ -679,7 +684,7 @@ async function chatHandler(req, res, body) {
           ...contents,
           { role: "model", parts: [{ text: full }] },
           { role: "user", parts: [{ text: `${bad}\n\nأعِدْ كتابةَ الجوابِ كاملًا مصحَّحًا، بلا اعتذارٍ ولا إشارةٍ إلى هذا التصحيح.` }] },
-        ], { temperature, maxOutputTokens });
+        ], { temperature, maxOutputTokens, model });
         if (fixed && !unbackedClaim(fixed, guardMaterial))
           send({ type: "replace", text: fixed });
         else if (fixed)                   // still unbacked → drop to the safe floor
@@ -692,9 +697,9 @@ async function chatHandler(req, res, body) {
 }
 
 /** Non-streaming completion (used by the guard's single retry). */
-async function geminiText(system, contents, { temperature = 0.2, maxOutputTokens = 1024 } = {}) {
+async function geminiText(system, contents, { temperature = 0.2, maxOutputTokens = 1024, model = CHAT_MODEL } = {}) {
   const r = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${CHAT_MODEL}:generateContent?key=${GEMINI_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
     { method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: system }] }, contents,
@@ -767,7 +772,7 @@ function unbackedClaim(text, material) {
   return null;
 }
 
-async function streamGemini(res, system, contents, { temperature = 0.2, maxOutputTokens = 1024, thinkingBudget, guardMaterial } = {}) {
+async function streamGemini(res, system, contents, { temperature = 0.2, maxOutputTokens = 1024, thinkingBudget, guardMaterial, model = CHAT_MODEL } = {}) {
   if (typeof contents === "string") contents = [{ role: "user", parts: [{ text: contents }] }];
   const send = (o) => res.write(`data: ${JSON.stringify(o)}\n\n`);
   const ac = new AbortController();
@@ -775,7 +780,7 @@ async function streamGemini(res, system, contents, { temperature = 0.2, maxOutpu
   let upstream;
   try {
     upstream = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${CHAT_MODEL}:streamGenerateContent?alt=sse&key=${GEMINI_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${GEMINI_KEY}`,
       { method: "POST", headers: { "content-type": "application/json" }, signal: ac.signal,
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: system }] },
@@ -960,7 +965,8 @@ async function nibrasComposeHandler(req, res, body) {
     await streamGemini(res, nibrasComposeSystem(lenSpec, hasWeak),
       [{ role: "user", parts: [{ text: userText }] }],
       { temperature: 0.85, maxOutputTokens: lenSpec.max, thinkingBudget: 2048,
-        guardMaterial: material + " " + previous });   // previous draft counts as backed
+        guardMaterial: material + " " + previous,      // previous draft counts as backed
+        model: COMPOSE_MODEL });                       // الصياغةُ على الطبقة الأقوى إن فُعِّلت
     return;
   }
 
