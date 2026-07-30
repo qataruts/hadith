@@ -37,6 +37,9 @@ const DB_FILES = [
   // optional: the آثار semantic tier (~229 MB). The server finds it beside the KG
   // db and degrades gracefully if absent, so it never blocks startup.
   { name: "athar-embedding.db", url: `${DATASET}/athar-embedding.db`, size: 240_058_368, optional: true },
+  // optional: the variant-matn tier (الطبقة الثالثة، ~230 MB) — full-matn meaning
+  // search. Same graceful degradation: absent = the app simply lacks that tier.
+  { name: "matn-embedding.db", url: `${DATASET}/matn-embedding.db`, size: 231_000_000, optional: true },
 ];
 const REQUIRED_DBS = DB_FILES.filter((f) => !f.optional);
 
