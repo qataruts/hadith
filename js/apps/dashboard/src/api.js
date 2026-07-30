@@ -66,7 +66,7 @@ export const api = {
 
 /** POST /api/nibras/compose with SSE. Emits the structured check first, then
  * streams the grounded prose verdict. Degrades (onNokey) if no key on server. */
-export async function nibrasComposeStream(payload, { onCheck, onSubject, onFollowup, onDelta, onDone, onError, onNokey }, signal) {
+export async function nibrasComposeStream(payload, { onCheck, onSubject, onFollowup, onDelta, onReplace, onDone, onError, onNokey }, signal) {
   let ended = false;
   const finish = (fn, ...a) => { if (!ended) { ended = true; fn?.(...a); } };
   let res;
@@ -87,6 +87,8 @@ export async function nibrasComposeStream(payload, { onCheck, onSubject, onFollo
     else if (ev.type === "subject") onSubject?.(ev.id);
     else if (ev.type === "followup") onFollowup?.(ev.subject);
     else if (ev.type === "delta") onDelta?.(ev.text);
+    // حارسُ القاعدةِ الذهبيّة أعادَ الصياغةَ: نستبدلُ المعروضَ بالمصحَّح
+    else if (ev.type === "replace") onReplace?.(ev.text);
     else if (ev.type === "nokey") onNokey?.();
     else if (ev.type === "error") finish(onError, ev.error);
     else if (ev.type === "done") finish(onDone);

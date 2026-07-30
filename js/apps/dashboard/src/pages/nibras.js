@@ -152,6 +152,7 @@ async function send(text) {
       await nibrasComposeStream({ claim: plan.query || text, books: getScopeIds() ?? undefined }, {
         onCheck(c) { checkData = c; paint(); },
         onDelta(t) { prose += t; paint(); },
+        onReplace(t) { prose = t; paint(); },   // الحارس صحّح الصياغة
         onNokey() { if (!prose) prose = "النتيجة في الأسفل — أضِفْ مفتاح Gemini لقراءةٍ مركّبة."; paint(); },
         onError() {}, onDone() {},
       }, streamAbort.signal);
@@ -174,6 +175,7 @@ async function send(text) {
       await nibrasComposeStream(
         { task, subject: plan.subject || text, length, ahadith, instruction: text, previous: store.lastDraft(chat) },
         { onDelta(t) { draft += t; const live = document.getElementById(`nib-live-${mid}`); if (live) live.innerHTML = bold(draft); },
+          onReplace(t) { draft = t; const live = document.getElementById(`nib-live-${mid}`); if (live) live.innerHTML = bold(draft); },
           onNokey() { draft = "الصياغة تتطلّب مفتاح Gemini على الخادم."; }, onError() {}, onDone() {} },
         streamAbort.signal);
       finish({ text: plan.reply || "", ahadith: gathered, draft: draft || "(تعذّرت الصياغة)", composed: true });

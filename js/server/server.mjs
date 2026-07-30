@@ -642,13 +642,14 @@ async function chatHandler(req, res, body) {
   const reader = upstream.body.getReader();
   const dec = new TextDecoder();
   let carry = "";
+  let full = "";                         // the whole answer, for the post-hoc guard
   const emit = (line) => {
     if (!line.startsWith("data: ")) return;
     try {
       const chunk = JSON.parse(line.slice(6));
       const text = (chunk.candidates?.[0]?.content?.parts ?? [])
         .map((p) => p.text ?? "").join("");
-      if (text) send({ type: "delta", text });
+      if (text) { full += text; send({ type: "delta", text }); }
     } catch { /* keepalive or partial */ }
   };
   try {
@@ -666,13 +667,89 @@ async function chatHandler(req, res, body) {
     if (!ac.signal.aborted) throw e;
   }
   if (ac.signal.aborted) return;
+
+  // حارسُ القاعدةِ الذهبيّة: the text is already on screen, so if it violates we
+  // regenerate ONCE (non-streaming) and send a {replace} the client swaps in.
+  if (guardMaterial && full.trim()) {
+    const bad = unbackedClaim(full, guardMaterial);
+    if (bad) {
+      console.warn("nibras guard tripped:", bad.slice(0, 120));
+      try {
+        const fixed = await geminiText(system, [
+          ...contents,
+          { role: "model", parts: [{ text: full }] },
+          { role: "user", parts: [{ text: `${bad}\n\nأعِدْ كتابةَ الجوابِ كاملًا مصحَّحًا، بلا اعتذارٍ ولا إشارةٍ إلى هذا التصحيح.` }] },
+        ], { temperature, maxOutputTokens });
+        if (fixed && !unbackedClaim(fixed, guardMaterial))
+          send({ type: "replace", text: fixed });
+        else if (fixed)                   // still unbacked → drop to the safe floor
+          send({ type: "replace", text: "تعذّرتْ صياغةٌ مستندةٌ إلى المادّة وحدَها؛ فالنتائجُ المسنَدةُ أدناه هي المُعتمَد." });
+      } catch (e) { console.warn("guard retry failed:", e.message); }
+    }
+  }
   send({ type: "done" });
   res.end();
 }
 
+/** Non-streaming completion (used by the guard's single retry). */
+async function geminiText(system, contents, { temperature = 0.2, maxOutputTokens = 1024 } = {}) {
+  const r = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${CHAT_MODEL}:generateContent?key=${GEMINI_KEY}`,
+    { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] }, contents,
+        generationConfig: { temperature, maxOutputTokens, thinkingConfig: { thinkingBudget: 0 } },
+      }) });
+  if (!r.ok) throw new Error(`gemini HTTP ${r.status}`);
+  const d = await r.json();
+  return (d?.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim();
+}
+
 // Stream a Gemini completion for a system + contents array (SSE deltas). A
 // single user turn is just [{role:"user",parts:[{text}]}].
-async function streamGemini(res, system, contents, { temperature = 0.2, maxOutputTokens = 1024, thinkingBudget } = {}) {
+/* ── حارسُ القاعدةِ الذهبيّة ────────────────────────────────────────────────
+ * التوجيهُ النصّيُّ وحدَه لا يكفي في الحديثِ: لا بدَّ من فحصٍ برمجيٍّ بعدَ التوليد.
+ * قاعدتان لا يُتجاوَزان:
+ *   ١) كلُّ ما بين «…» من متنٍ (٢٥ حرفًا أو أكثر) يجبُ أن يكونَ في المادّةِ حرفيًّا.
+ *   ٢) كلُّ رقمٍ ذي دلالةٍ (٣ خانات أو أكثر) يجبُ أن يكونَ في المادّة.
+ * لأنَّ اختلاقَ متنٍ أو رقمٍ في الحديثِ أشدُّ من الخطأِ في غيرِه. مأخوذٌ من
+ * assist.js في «مشكاة» ومُقيَّدٌ بما يخصُّ الحديثَ (الأسماءُ والدرجاتُ منقولة). */
+const ARABIC_DIGITS = { "٠": "0", "١": "1", "٢": "2", "٣": "3", "٤": "4",
+                        "٥": "5", "٦": "6", "٧": "7", "٨": "8", "٩": "9" };
+const guardNorm = (s) => (s ?? "")
+  .replace(/[٠-٩]/g, (d) => ARABIC_DIGITS[d])
+  .replace(/[ً-ْٰـ]/g, "")
+  .replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي")
+  .replace(/[^\p{L}\p{N} ]/gu, " ")
+  .replace(/\s+/g, " ").trim();
+
+/** Returns a violation sentence for the model to fix, or null when clean. */
+function unbackedClaim(text, material) {
+  const hay = guardNorm(material);
+  if (!hay) return null;
+  // ١) اقتباسات المتون بين «…»
+  for (const m of String(text).matchAll(/«([^»]{25,})»/g)) {
+    const raw = m[1];
+    // an elided middle («أوّلُه … آخرُه») is legitimate: every segment must be in
+    // the material, so nothing is invented — only omitted.
+    const segs = raw.split(/…|\.\.\./).map(guardNorm).filter((s) => s.length >= 10);
+    if (!segs.length) continue;
+    if (segs.every((s) => hay.includes(s))) continue;
+    return `اقتبستَ متنًا ليس في المادّة حرفيًّا: «${raw.slice(0, 60)}…». `
+      + `أعِدْ صياغةَ الجواب، ولا تنقلْ متنًا إلّا كما ورد في المادّة نفسِها حرفًا بحرف.`;
+  }
+  // ٢) الأرقام ذات الدلالة
+  for (const m of String(text).matchAll(/\d[\d,،٫.]{2,}|[٠-٩][٠-٩,،٫.]{2,}/g)) {
+    const raw = guardNorm(m[0]).replace(/[ ,]/g, "");
+    if (raw.length < 3) continue;
+    if (hay.replace(/[ ,]/g, "").includes(raw)) continue;
+    return `ذكرتَ رقمًا لا سندَ له في المادّة: «${m[0]}». أعِدْ الجوابَ بلا أرقامٍ `
+      + `إلّا ما هو مذكورٌ في المادّة نصًّا.`;
+  }
+  return null;
+}
+
+async function streamGemini(res, system, contents, { temperature = 0.2, maxOutputTokens = 1024, thinkingBudget, guardMaterial } = {}) {
   if (typeof contents === "string") contents = [{ role: "user", parts: [{ text: contents }] }];
   const send = (o) => res.write(`data: ${JSON.stringify(o)}\n\n`);
   const ac = new AbortController();
@@ -864,7 +941,8 @@ async function nibrasComposeHandler(req, res, body) {
     });
     await streamGemini(res, nibrasComposeSystem(lenSpec, hasWeak),
       [{ role: "user", parts: [{ text: userText }] }],
-      { temperature: 0.85, maxOutputTokens: lenSpec.max, thinkingBudget: 2048 });
+      { temperature: 0.85, maxOutputTokens: lenSpec.max, thinkingBudget: 2048,
+        guardMaterial: material + " " + previous });   // previous draft counts as backed
     return;
   }
 
@@ -894,7 +972,7 @@ async function nibrasComposeHandler(req, res, body) {
       ...history.map((m) => ({ role: m.role === "user" ? "user" : "model", parts: [{ text: String(m.text ?? "").slice(0, 2000) }] })),
       { role: "user", parts: [{ text: `الحقائق المسجَّلة عن الحديث محل النقاش:\n${factsBlock}\n\nسؤال المستخدم: ${claim}\n\nأجب عن سؤاله من هذه الحقائق فقط، ولا تخرج عنها ولا تُعِد الحكم.` }] },
     ];
-    await streamGemini(res, NIBRAS_SYSTEM, contents);
+    await streamGemini(res, NIBRAS_SYSTEM, contents, { guardMaterial: factsBlock });
     return;
   }
 
@@ -915,7 +993,8 @@ async function nibrasComposeHandler(req, res, body) {
 أقرب موضع: ${chk.best.book}${chk.best.noInBook ? ` رقم ${chk.best.noInBook}` : ""} — الحكم المسجَّل: ${chk.best.hukm || "غير مذكور"}.
 ${g ? `ورد المعنى من ${g.routes} طريقاً، توزيعُ درجاتها: ${dist}. وأقوى درجةٍ في طرقه: ${LV_AR[g.bestLv] ?? "غير محدَّد"}.` : ""}`;
   }
-  await streamGemini(res, NIBRAS_SYSTEM, facts);
+  // the claim itself is the user's, so it counts as backed material alongside the facts
+  await streamGemini(res, NIBRAS_SYSTEM, facts, { guardMaterial: `${facts} ${claim}` });
 }
 
 // ---- static dashboard (production build) ----------------------------------------

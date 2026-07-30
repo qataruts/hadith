@@ -51,6 +51,7 @@ function run() {
   nibrasComposeStream({ claim: q, books: getScopeIds() ?? undefined }, {
     onCheck: (chk) => { struct.innerHTML = render(chk); },
     onDelta: (t) => { text += t; paint(); },
+    onReplace: (t) => { text = t; paint(); },   // الحارس صحّح الصياغة
     onNokey: () => { /* structured result already shown; no composed reading without a key */ },
     onError: async () => {
       if (!struct.querySelector(".verdict-card")) {           // structured never arrived → fallback

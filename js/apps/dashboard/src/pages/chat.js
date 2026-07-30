@@ -132,6 +132,7 @@ document.addEventListener("page:rendered", () => {
         onSubject(id) { if (gen === generation) { checkSubject = id; input.placeholder = "اسأل عن هذا الحديث، أو الصِق حديثاً جديداً…"; } },
         onFollowup() { /* keep the current subject's source panel */ },
         onDelta(t) { if (gen !== generation) return; answer += t; if (bubble()) bubble().innerHTML = esc(answer).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>"); },
+        onReplace(t) { if (gen !== generation) return; answer = t; if (bubble()) bubble().innerHTML = esc(answer).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>"); },
         onNokey() { if (gen === generation && bubble() && !answer) bubble().innerHTML = `<span class="muted">النتيجة المفصَّلة في اللوحة الجانبية. أضِف مفتاح Gemini لقراءةٍ مركَّبة.</span>`; },
         onError(err) { if (gen === generation && bubble()) bubble().innerHTML = keyErrorHtml(err) ?? `<span class="muted">تعذّر التحقّق — ${esc(err)}</span>`; done(); },
         onDone() { if (gen !== generation) return; const b = bubble(); if (b) b.removeAttribute("id");
