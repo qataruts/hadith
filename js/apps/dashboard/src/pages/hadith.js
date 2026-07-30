@@ -6,8 +6,14 @@ import { mountRawiPopup } from "../components/rawipop.js";
 import { renderWhy } from "../components/why.js";
 import { renderItibar } from "../components/itibar.js";
 import { renderContact } from "../components/contact.js";
+import { diff, words, renderOps } from "../components/matndiff.js";
+
+/** شريط الطرق data for the current hadith: {base, sibs} — set while building the
+ *  page, consumed by the page:rendered binder below. */
+let routeSibs = null;
 
 export async function hadithPage({ args: [id], render }) {
+  routeSibs = null;
   const h = await api.hadith(id);
   if (!h) return `<div class="empty">الحديث غير موجود</div>`;
   const books = await api.books();
@@ -34,6 +40,7 @@ export async function hadithPage({ args: [id], render }) {
       </div>
     </div>
     <div class="nass" id="hadith-nass">${renderNass(h)}</div>
+    ${extras.routes ?? ""}
     ${extras.takhrij ?? ""}
     <div class="muted no-print" style="margin-top:14px">أسماء الرواة في النص روابط — اضغط أي اسم لفتح ترجمته</div>
   </div>
@@ -98,7 +105,7 @@ export async function hadithPage({ args: [id], render }) {
   // secondary data: prev/next + takhrij line (other books carrying this meaning)
   const [nav, group] = await Promise.all([
     api.hadithNav(h.hadithId).catch(() => null),
-    h.groupId ? api.group(h.groupId, 0).catch(() => null) : null,
+    h.groupId ? api.group(h.groupId, 40).catch(() => null) : null,  // 40 = enough for شريط الطرق
   ]);
   const navHtml = nav
     ? `<span style="margin-inline-start:auto" class="row">
@@ -106,6 +113,30 @@ export async function hadithPage({ args: [id], render }) {
         ${nav.next ? `<a class="chip" href="#/hadith/${nav.next.id}">التالي (${fmt(nav.next.no_inbook)}) ←</a>` : ""}
       </span>`
     : "";
+  // شريط الطرق — every other route of this meaning, right here: press one to see
+  // its wording diffed against the one on screen (تتبُّعُ الألفاظ بلا مغادرة الصفحة)
+  let routesHtml = "";
+  const sibs = (group?.narrations ?? []).filter((n) => n.hadithId !== h.hadithId && n.taraf);
+  if (sibs.length) {
+    routesHtml = `
+      <div class="no-print" style="margin-top:14px;border-top:1px solid var(--hairline);padding-top:10px">
+        <div class="muted" style="font-size:12.5px;margin-bottom:5px">
+          <strong style="color:var(--ink-2)">طرقُ هذا المعنى (${fmt(sibs.length + 1)})</strong>
+          — اضغطْ طريقًا لتُقابلَ لفظَه بلفظِ ما بين يديك، أو افتحْه في صفحته
+        </div>
+        <div class="routes-bar" id="h-routes">
+          <button class="route-chip on" data-i="-1">اللفظُ المعروض</button>
+          ${sibs.slice(0, 40).map((n, i) => `
+            <button class="route-chip" data-i="${i}" title="${esc(n.hukm ?? "")}">
+              ${esc(n.bookName ?? "—")}${n.noInBook ? ` · ${fmt(n.noInBook)}` : ""}
+            </button>`).join("")}
+        </div>
+        <div id="h-routes-out"></div>
+      </div>`;
+    // the bar is bound in the page:rendered handler below (the final HTML is
+    // injected by the router after this function returns)
+    routeSibs = { base: stripTashkeel(h.taraf ?? h.matnClean ?? ""), sibs };
+  }
   let takhrijHtml = "";
   if (group?.books?.length > 1) {
     const others = group.books.filter((b) => b.bookId !== h.bookId).slice(0, 8);
@@ -115,7 +146,7 @@ export async function hadithPage({ args: [id], render }) {
         ${others.map((b) => `<a href="#/group/${h.groupId}">${esc(b.name)} (${fmt(b.count)})</a>`).join("، ")}${group.books.length - 1 > others.length ? "…" : ""}
       </div>`;
   }
-  return page({ nav: navHtml, takhrij: takhrijHtml });
+  return page({ nav: navHtml, takhrij: takhrijHtml, routes: routesHtml });
 }
 
 function renderAudit(d) {
@@ -136,6 +167,38 @@ function renderAudit(d) {
 }
 
 document.addEventListener("page:rendered", () => {
+  // شريط الطرق — press a route to diff its wording against the one on screen
+  const rBar = document.getElementById("h-routes");
+  if (rBar && routeSibs && !rBar.dataset.bound) {
+    rBar.dataset.bound = "1";
+    const { base, sibs } = routeSibs;
+    const outEl = document.getElementById("h-routes-out");
+    rBar.addEventListener("click", (e) => {
+      const b = e.target.closest(".route-chip");
+      if (!b || !outEl) return;
+      rBar.querySelectorAll(".route-chip").forEach((x) => x.classList.remove("on"));
+      b.classList.add("on");
+      const i = Number(b.dataset.i);
+      if (i < 0) { outEl.innerHTML = ""; return; }
+      const n = sibs[i];
+      const ops = diff(words(base), words(stripTashkeel(n.taraf ?? "")));
+      outEl.innerHTML = `
+        <div class="card" style="margin-top:9px;background:var(--surface-2)">
+          <div class="spread" style="margin-bottom:7px">
+            <div class="row" style="gap:7px">
+              <b>${esc(n.bookName ?? "")}${n.noInBook ? ` · ${fmt(n.noInBook)}` : ""}</b>
+              ${gradeBadge(n.hukm)}
+            </div>
+            <a class="chip" href="#/hadith/${n.hadithId}">افتحْ هذه الرواية ←</a>
+          </div>
+          <div class="nass nass-sm">${renderOps(ops)}</div>
+          <div class="muted" style="font-size:12px;margin-top:6px">
+            الملوَّنُ زيادةٌ أو خلافٌ عن اللفظ المعروض — والحكمُ أعلاه منقولٌ كما دُوِّن
+          </div>
+        </div>`;
+    });
+  }
+
   const aHost = document.getElementById("audit-host");
   if (aHost && !aHost.dataset.bound) {
     aHost.dataset.bound = "1";
