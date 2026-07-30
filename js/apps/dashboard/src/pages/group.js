@@ -89,7 +89,7 @@ export async function groupPage({ args: [id], params }) {
   </div>
 
   <div class="sec-title">الروايات</div>
-  <div class="grid">${(g.narrations ?? []).map(hadithCard).join("") || `<div class="empty">لا روايات</div>`}</div>
+  <div class="grid">${(g.narrations ?? []).map((n) => hadithCard(n, { noTaraf: true })).join("") || `<div class="empty">لا روايات</div>`}</div>
   ${g.hadithCount > 30 ? `
     <div class="pager">
       ${offset > 0 ? `<a class="btn" href="#/group/${g.groupId}?offset=${Math.max(0, offset - 30)}">السابق</a>` : ""}

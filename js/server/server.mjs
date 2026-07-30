@@ -55,6 +55,19 @@ const trim = (h) => ({
   groupId: h.groupId, sanadCount: h.sanads?.length ?? 0,
 });
 
+/** Attach each hit's طرف route count in ONE query, so a narration card can say
+ *  «من طرفٍ له N رواية» — the two-tier display rule (طرف ↔ رواية) needs it. */
+function withGroupCounts(list) {
+  const ids = [...new Set(list.map((h) => h.groupId).filter(Boolean))];
+  if (!ids.length) return list;
+  const counts = new Map(
+    kg.prepare(`SELECT group_id g, COUNT(*) c FROM hadiths
+                WHERE group_id IN (${ids.map(() => "?").join(",")}) GROUP BY g`)
+      .all(...ids).map((r) => [r.g, r.c]));
+  for (const h of list) if (h.groupId) h.groupHadithCount = counts.get(h.groupId) ?? null;
+  return list;
+}
+
 // KG prepared statements (graph side)
 const q = {
   rawiHadiths: kg.prepare(
@@ -871,7 +884,7 @@ const routes = {
     // deep in the global ranking, so limit*k is far too few for small limits)
     const hits = await hadiths.search(qs, { limit: scope ? Math.max(500, limit * 6) : limit });
     const kept = scope ? hits.filter((h) => scope.has(h.bookId)) : hits;
-    return { hits: kept.slice(0, limit).map(trim) };
+    return { hits: withGroupCounts(kept.slice(0, limit).map(trim)) };
   },
 
   "GET /api/search/groups": async (u) => {

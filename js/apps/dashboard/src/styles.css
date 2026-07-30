@@ -153,6 +153,18 @@ h1 { font-size: 1.9em; }
 .tnode.chain-on rect { stroke-width: 2.6; }
 .edge-vis.chain-on { stroke-linecap: round; }
 
+/* قاعدةُ العرض الثنائية — رواية تحمل شريحةَ طرفها · وطرفٌ موسومٌ بعدّاداته */
+.rc-wrap { display: flex; flex-direction: column; gap: 0; }
+.rc-main { display: block; color: inherit; text-decoration: none; }
+.rc-main:hover { text-decoration: none; }
+.taraf-slip {
+  align-self: flex-start; margin-top: 9px; padding: 3px 9px; border-radius: 999px;
+  font-size: 11.5px; color: var(--ink-3); background: var(--surface-2);
+  border: 1px solid var(--hairline); text-decoration: none;
+}
+.taraf-slip:hover { color: var(--accent); border-color: var(--accent); text-decoration: none; }
+.badge.taraf-badge { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
 /* شريط الطرق — route chips under a hadith / on a taraf page */
 .routes-bar { display: flex; gap: 7px; overflow-x: auto; padding: 4px 0 8px; scrollbar-width: thin; }
 .routes-bar::-webkit-scrollbar { height: 6px; }
