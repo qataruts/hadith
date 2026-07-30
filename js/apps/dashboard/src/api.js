@@ -30,6 +30,7 @@ export const api = {
   hadithWhy: (id) => get(`/hadith/${id}/why`),
   hadithItibar: (id, rawi) => get(`/hadith/${id}/itibar`, rawi ? { rawi } : {}),
   hadithContact: (id) => get(`/hadith/${id}/contact`),
+  hadithUplift: (id) => get(`/hadith/${id}/uplift`),
   hadithNav: (id) => get(`/hadith/${id}/nav`),
   bookHadithNo: (bookId, no) => get(`/book/${bookId}/no/${no}`),
   group: (id, limit = 30, offset = 0) => get(`/group/${id}`, { limit, offset }),

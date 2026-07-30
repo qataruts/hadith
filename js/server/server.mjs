@@ -1036,6 +1036,54 @@ function serveStatic(u, res) {
   return true;
 }
 
+// ── محرّكُ الارتقاء بالاعتبار ────────────────────────────────────────────────
+// A weak isnad recorded «ضعيف ويحسن إذا توبع» rises to حسن لغيره IF a real متابعة
+// exists. Rather than echo the conditional, we CHECK the meaning-group for an
+// independent supporting route and show it with its evidence. Measured: ~81% of
+// such hadith actually have an independent صحيح/حسن route. Conservative by design
+// (a missed supporter is far safer than a wrongly-claimed ارتقاء): a supporter
+// must be sound AND not itself conditional/broken/severe, and independent of this
+// isnad's takhrij (the same transmission line copied into another book ≠ متابعة).
+const UP_COND   = (h = "") => /توبع|المتابعات\s+والشواهد/.test(h);
+const UP_BREAK  = (h = "") => /انقطاع|منقطع|إرسال|مرسل|معضل|معلّ?ق|تعليق|لم\s+يسمع|لم\s+يدرك|تدليس|مدلّ?س/.test(h);
+const UP_SEVERE = (h = "") => /موضوع|متروك|شديد\s+الضعف|متّ?هم|كذّ?اب|واهٍ|منكر\s+جدا/.test(h);
+const UP_SOUND  = (h = "") => /إسناده?\s+متّ?صل[^؛,،]*ثقات|إسنادٌ?\s+حسن|إسناده\s+حسن/.test(h)
+  && !UP_COND(h) && !UP_BREAK(h) && !UP_SEVERE(h) && !/(^|\s)ضعيف/.test(h);
+
+function upliftFor(hadithId, scope = null) {
+  const mine = kg.prepare("SELECT hukum, takhrij, group_id FROM sanads WHERE hadith_id = ?").all(Number(hadithId));
+  const cond = mine.find((s) => UP_COND(s.hukum || ""));
+  if (!cond || cond.group_id == null) return { conditional: false };
+  const myTak = new Set(mine.map((s) => s.takhrij).filter((x) => x != null));
+  const rows = kg.prepare(
+    `SELECT s.hukum, s.takhrij, s.hadith_id, h.book_id, h.no_inbook, h.taraf_nass
+     FROM sanads s JOIN hadiths h ON h.id = s.hadith_id
+     WHERE s.group_id = ? AND s.hadith_id <> ?`).all(cond.group_id, Number(hadithId));
+  const seen = new Set(), sound = [], corrob = [];
+  for (const r of rows) {
+    if (r.takhrij != null && myTak.has(r.takhrij)) continue;    // same line ≠ independent متابعة
+    const key = r.takhrij != null ? `t${r.takhrij}` : `h${r.hadith_id}`;
+    if (seen.has(key)) continue; seen.add(key);
+    const item = { hadithId: r.hadith_id, book: bookName.get(r.book_id), bookId: r.book_id,
+      noInBook: r.no_inbook, taraf: r.taraf_nass, hukm: r.hukum, inScope: !scope || scope.has(r.book_id) };
+    if (UP_SOUND(r.hukum)) sound.push(item);
+    else if (!UP_SEVERE(r.hukum) && !UP_BREAK(r.hukum) && /ضعيف/.test(r.hukum || "")) corrob.push(item);
+  }
+  const inS = (a) => (a.inScope ? 0 : 1);                       // in-scope supporters first
+  sound.sort((a, b) => inS(a) - inS(b)); corrob.sort((a, b) => inS(a) - inS(b));
+  const level = sound.length ? "sound" : corrob.length >= 2 ? "corroborated" : "none";
+  const verdict = level === "sound"
+    ? `الشرطُ متحقِّق: للمعنى طريقٌ${sound.length > 1 ? ` (${sound.length})` : ""} صحيحٌ أو حسنٌ مستقلٌّ عن هذا الإسناد، فيرتقي به الحديثُ إلى الحُسنِ لغيره.`
+    : level === "corroborated"
+      ? `يُعضَّدُ بالمجموع: ${corrob.length} طرقٍ ضعفُها محتمَلٌ (لا انقطاعَ ولا اتّهامَ) يجبُرُ بعضُها بعضًا.`
+      : "لم يُوجد في المصنَّف ما يرقّيه: لا متابِعَ معتبرًا — فيبقى على ما قيلَ فيه.";
+  return { conditional: true, met: level !== "none", level, recorded: cond.hukum,
+    sound: sound.slice(0, 8), corroborating: corrob.slice(0, 8),
+    counts: { sound: sound.length, corroborating: corrob.length },
+    scope: scope ? { active: true, outOfScope: [...sound, ...corrob].filter((x) => !x.inScope).length } : null,
+    verdict };
+}
+
 // ---- routes -----------------------------------------------------------------
 const routes = {
   "GET /api/stats": async (u) => {
@@ -1506,6 +1554,10 @@ const routes = {
   },
 
   // «لماذا هذا الحكم؟» — per-sanad plain-language analysis of chain health
+  // هل تحقّق شرطُ «يحسن إذا توبع»؟ — checks the group for an independent supporter.
+  // «مبصرٌ في الاعتبار»: sees all books, marks out-of-scope supporters.
+  "GET /api/hadith/:id/uplift": async (u, id) => upliftFor(id, parseBookScope(u)),
+
   "GET /api/hadith/:id/why": async (_u, id) => {
     const rows = q.whyRows.all(Number(id));
     if (!rows.length) return { sanads: [] };

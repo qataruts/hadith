@@ -53,6 +53,8 @@ export async function hadithPage({ args: [id], render }) {
     <div id="audit-body" style="margin-top:10px"><div class="skeleton" style="height:90px"></div></div>
   </div>` : ""}
 
+  ${h.groupId ? `<div id="uplift-host" class="no-print" data-hid="${h.hadithId}"></div>` : ""}
+
   ${(h.sanads ?? []).length ? `<div class="card" id="isnad-host" data-hid="${h.hadithId}" style="position:relative">
     <div class="no-print">
       <h3 style="margin:0">أسانيد الحديث — ملوّنةً بدرجات الرواة</h3>
@@ -166,7 +168,52 @@ function renderAudit(d) {
     </div>`;
 }
 
+/** الارتقاءُ بالاعتبار — did a «يحسن إذا توبع» isnad actually find its متابعة? */
+function renderUplift(d) {
+  if (!d?.conditional) return "";
+  const tone = d.level === "sound" ? "ok" : d.level === "corroborated" ? "gold" : "warn";
+  const suppList = (arr, label) => arr.length ? `
+    <div style="margin-top:9px">
+      <div class="muted" style="font-size:12px;margin-bottom:4px">${label}</div>
+      <div class="itibar-list">${arr.map((s) => `
+        <a class="edge-item" href="#/hadith/${s.hadithId}">
+          <div class="edge-item-head">
+            <span class="muted">${esc(s.book ?? "")}${s.noInBook ? ` · ${fmt(s.noInBook)}` : ""}</span>
+            ${s.inScope === false ? `<span class="badge scope-out" title="من كتابٍ خارج نطاقك — يُعرض لأن الاعتبار يزن المصنَّف كله">خارج النطاق</span>` : ""}
+            ${gradeBadge(s.hukm)}
+          </div>
+          ${s.taraf ? `<div class="edge-item-matn">${esc(s.taraf)}</div>` : ""}
+        </a>`).join("")}</div>
+    </div>` : "";
+  const recorded = (d.recorded || "").replace(/^إسناده?\s*/, "");
+  return `
+    <div class="card uplift uplift-${tone}" style="margin-top:14px">
+      <div class="uplift-head">
+        <span class="uplift-icon">${d.met ? "✓" : "—"}</span>
+        <div>
+          <h3 style="margin:0">الارتقاءُ بالاعتبار</h3>
+          <div class="muted" style="font-size:12.5px;margin-top:2px">قيلَ في إسناده: «${esc(recorded)}» — فهل تحقّق الشرطُ فِعلاً؟</div>
+        </div>
+      </div>
+      <div class="uplift-verdict">${esc(d.verdict)}</div>
+      ${suppList(d.sound, "طرقٌ صحيحةٌ أو حسنةٌ مستقلّةٌ ترفعُه")}
+      ${suppList(d.corroborating, d.level === "corroborated" ? "طرقٌ عاضِدةٌ (ضعفٌ يسيرٌ يجبُرُ بعضُه بعضًا)" : "طرقٌ عاضِدةٌ أخرى")}
+      <div class="muted" style="font-size:11.5px;margin-top:9px">
+        قرينةٌ محسوبةٌ من الشبكة توجِّهُ النظر؛ الحكمُ النهائيُّ بجبرِ الضعفِ لأهلِ الشأن.
+      </div>
+    </div>`;
+}
+
 document.addEventListener("page:rendered", () => {
+  // الارتقاءُ بالاعتبار — lazy, and only renders if the isnad was conditionally graded
+  const upHost = document.getElementById("uplift-host");
+  if (upHost && !upHost.dataset.bound) {
+    upHost.dataset.bound = "1";
+    api.hadithUplift(Number(upHost.dataset.hid))
+      .then((d) => { if (upHost.isConnected) upHost.innerHTML = renderUplift(d); })
+      .catch(() => {});
+  }
+
   // شريط الطرق — press a route to diff its wording against the one on screen
   const rBar = document.getElementById("h-routes");
   if (rBar && routeSibs && !rBar.dataset.bound) {

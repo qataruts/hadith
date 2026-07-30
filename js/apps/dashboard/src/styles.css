@@ -146,6 +146,23 @@ h1 { font-size: 1.9em; }
 /* «مبصرٌ في الاعتبار»: a corroborating route from outside the active book scope */
 .badge.scope-out { background: var(--surface-2); color: var(--ink-3); border: 1px dashed var(--ink-3); }
 
+/* الارتقاءُ بالاعتبار (م٥) — did a «يحسن إذا توبع» isnad find its متابعة? */
+.uplift { --uc: var(--warn); border-inline-start: 5px solid var(--uc); }
+.uplift-ok { --uc: var(--ok); }
+.uplift-gold { --uc: var(--gold); }
+.uplift-warn { --uc: var(--warn); }
+.uplift-head { display: flex; align-items: center; gap: 11px; }
+.uplift-icon {
+  flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 17px; font-weight: 700; color: var(--uc);
+  background: color-mix(in srgb, var(--uc) 14%, var(--surface));
+  border: 1.5px solid color-mix(in srgb, var(--uc) 45%, transparent);
+}
+.uplift-verdict {
+  margin-top: 10px; font-size: 15.5px; line-height: 1.85; color: var(--ink);
+  font-family: var(--font-head); font-weight: 600;
+}
+
 /* ICMA — grade-class chips + مظنّةُ المخالفة/الشذوذ (م٢) */
 .gclass-row { display: inline-flex; gap: 5px; flex-wrap: wrap; }
 .gclass {
