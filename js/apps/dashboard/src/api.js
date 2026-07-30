@@ -25,6 +25,7 @@ export const api = {
   searchRawis: (q, limit = 20) => get("/search/rawis", { q, limit }),
   semanticGroups: (q, limit = 10) => get("/semantic/groups", { q, limit }),
   searchAthar: (q, limit = 20) => get("/search/athar", { q, limit }),
+  searchMatns: (q, limit = 20) => get("/search/matns", { q, limit }),
   hadith: (id) => get(`/hadith/${id}`),
   hadithWhy: (id) => get(`/hadith/${id}/why`),
   hadithItibar: (id, rawi) => get(`/hadith/${id}/itibar`, rawi ? { rawi } : {}),

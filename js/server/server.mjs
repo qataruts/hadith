@@ -243,6 +243,49 @@ async function semanticAthar(query, limit, qvIn) {
   return { hits: order.map((i) => ({ hadithId: a.hids[i], score: scores[i] / 127 })) };
 }
 
+// ── variant-matn semantic tier (الطبقة الثالثة) ─────────────────────────────
+// The group tier embeds the طرف (opening ~110 chars); full matns average ~285,
+// and a measured 73% of distinct matns have ≥50% of their words absent from
+// their طرف — so details/ziyādāt/stories were invisible to meaning search.
+// Same vector space again, so ONE query vector ranks all three tiers. Each hit
+// carries its group_id, so results can be folded under their طرف in the UI.
+const MATN_DB = path.join(path.dirname(KG_DB), "matn-embedding.db");
+let matnEmb;    // undefined = not tried, null = none, else { hids, gids, mat }
+function loadMatns() {
+  if (matnEmb !== undefined) return matnEmb;
+  if (!fs.existsSync(MATN_DB)) { matnEmb = null; return null; }
+  const mdb = new DatabaseSync(MATN_DB, { readOnly: true });
+  const rows = mdb.prepare("SELECT hid, group_id, vec FROM matn_embedding").all();
+  mdb.close();
+  if (!rows.length) { matnEmb = null; return null; }
+  const hids = new Int32Array(rows.length);
+  const gids = new Int32Array(rows.length);
+  const mat = new Int8Array(rows.length * EMB_DIM);
+  rows.forEach((r, i) => {
+    hids[i] = r.hid; gids[i] = r.group_id;
+    mat.set(new Int8Array(r.vec.buffer, r.vec.byteOffset, EMB_DIM), i * EMB_DIM);
+  });
+  matnEmb = { hids, gids, mat };
+  console.log(`semantic: loaded ${rows.length} variant-matn vectors (int8)`);
+  return matnEmb;
+}
+
+async function semanticMatns(query, limit, qvIn) {
+  const m = loadMatns();
+  if (!m) return { hits: [] };
+  if (!GEMINI_KEY) return { error: "GEMINI_API_KEY not set on server", hits: null };
+  const qv = qvIn ?? await embedQuery(query);
+  const n = m.hids.length;
+  const scores = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    let s = 0; const off = i * EMB_DIM;
+    for (let d = 0; d < EMB_DIM; d++) s += m.mat[off + d] * qv[d];
+    scores[i] = s;
+  }
+  const order = [...m.hids.keys()].sort((x, y) => scores[y] - scores[x]).slice(0, limit);
+  return { hits: order.map((i) => ({ hadithId: m.hids[i], groupId: m.gids[i], score: scores[i] / 127 })) };
+}
+
 const matnOf = (h) =>
   h.matnStart != null ? h.nass.slice(h.matnStart, h.matnEnd) : h.nass;
 
@@ -698,9 +741,10 @@ async function retrieveNibras(query, { limit = 12, scope = null } = {}) {
   try { qv = await embedQuery(query); } catch (e) { return { error: String(e.message ?? e), hits: null }; }
   // scoped → over-fetch each tier, since out-of-scope candidates get dropped below
   const fetchN = scope ? 60 : 24;
-  const [g, a] = await Promise.all([
+  const [g, a, mt] = await Promise.all([
     semanticGroups(query, fetchN, qv).catch(() => ({ hits: [] })),
     semanticAthar(query, fetchN, qv).catch(() => ({ hits: [] })),
+    semanticMatns(query, fetchN, qv).catch(() => ({ hits: [] })),
   ]);
   const inClause = scope ? ` AND book_id IN (${[...scope].join(",")})` : "";
   const marfu = [];
@@ -723,6 +767,29 @@ async function retrieveNibras(query, { limit = 12, scope = null } = {}) {
     athar.push({ score: h.score, hadithId: h.hadithId, kind: rep.type ?? "أثر",
       matn: rep.taraf, book: bookName.get(rep.book_id), noInBook: rep.no_inbook, hukm: null });
   }
+  // the variant-matn tier: a specific WORDING matched (a detail/ziyāda/story the
+  // طرف doesn't carry). Two outcomes, never a duplicate meaning:
+  //   • its طرف already surfaced → UPGRADE that slot to the full matn text (the
+  //     material gains the actual wording asked about, same evidence slot)
+  //   • new meaning → its own item, marked wordingHit so the UI can say why
+  const byGroup = new Map(marfu.map((x) => [x.groupId, x]));
+  const matns = [];
+  for (const h of mt.hits ?? []) {
+    const rep = kg.prepare(
+      `SELECT id, taraf_nass taraf, book_id, matn grade, matn_no lv, no_inbook,
+              substr(nass, matn_start + 1) matn_full FROM hadiths WHERE id = ?`).get(h.hadithId);
+    if (!rep?.matn_full || (scope && !scope.has(rep.book_id))) continue;
+    const gradeBoost = rep.lv >= 0 ? (2.5 - rep.lv) * 0.02 : 0;
+    const item = { score: h.score + gradeBoost, hadithId: rep.id, groupId: h.groupId, kind: "مرفوع",
+      matn: rep.matn_full.slice(0, 700), book: bookName.get(rep.book_id), noInBook: rep.no_inbook,
+      hukm: rep.grade, wordingHit: true, taraf: rep.taraf };
+    const already = byGroup.get(h.groupId);
+    if (already) {
+      if (item.score > already.score) Object.assign(already, item);   // richer text, same slot
+      continue;
+    }
+    matns.push(item);
+  }
   // gate each tier on its own top, so marfū' (primary) and آثār (supplementary) are both kept
   const gate = (arr, keep) => {
     if (!arr.length) return [];
@@ -732,7 +799,7 @@ async function retrieveNibras(query, { limit = 12, scope = null } = {}) {
     return (g2.length >= 3 ? g2 : arr.slice(0, 4)).slice(0, keep);
   };
   const seen = new Set(), out = [];
-  for (const i of [...gate(marfu, 8), ...gate(athar, 6)]) {
+  for (const i of [...gate(marfu, 8), ...gate(matns, 4), ...gate(athar, 6)]) {
     if (seen.has(i.hadithId)) continue; seen.add(i.hadithId); out.push(i);
     if (out.length >= limit) break;
   }
@@ -1748,7 +1815,36 @@ const routes = {
     return { hits: hits.slice(0, limit), available: true };
   },
 
-  // نبراس · gated meaning retrieval (marfū' groups + آثār, one embedding, gated).
+  // Meaning search over the variant-matn tier — finds a specific WORDING (a
+  // detail/ziyāda/story the طرف doesn't carry). Each hit names its طرف so the
+  // client can fold it under the meaning it belongs to.
+  "GET /api/search/matns": async (u) => {
+    const qs = (u.searchParams.get("q") ?? "").trim();
+    const limit = clamp(u.searchParams.get("limit"), 15, 40);
+    if (!qs) return { hits: [], available: !!loadMatns() };
+    const scope = parseBookScope(u);
+    const r = await semanticMatns(qs, (scope ? limit * 5 : limit) + 10);
+    if (r.hits == null) return r;                       // key error surfaced to client
+    if (!r.hits.length) return { hits: [], available: !!loadMatns() };
+    const hids = r.hits.map((h) => h.hadithId);
+    const ph = hids.map(() => "?").join(",");
+    const meta = new Map();
+    for (const row of kg.prepare(
+      `SELECT id, taraf_nass taraf, book_id, matn grade, type, no_inbook, group_id,
+              substr(nass, matn_start + 1) matn_full FROM hadiths WHERE id IN (${ph})`).all(...hids))
+      meta.set(row.id, row);
+    let hits = r.hits.map((h) => {
+      const m = meta.get(h.hadithId);
+      return m ? { hadithId: h.hadithId, score: Math.round(h.score * 1000) / 1000,
+        matn: (m.matn_full ?? "").slice(0, 600), taraf: m.taraf, groupId: m.group_id,
+        book: bookName.get(m.book_id), bookId: m.book_id, noInBook: m.no_inbook,
+        hukm: m.grade, type: m.type } : null;
+    }).filter(Boolean);
+    if (scope) hits = hits.filter((h) => scope.has(h.bookId));
+    return { hits: hits.slice(0, limit), available: true };
+  },
+
+  // نبراس · gated meaning retrieval (marfū' groups + متون + آثār, one embedding).
   "GET /api/nibras/retrieve": async (u) => {
     const qs = (u.searchParams.get("q") ?? "").trim();
     if (qs.length < 3) return { hits: [] };
@@ -2107,7 +2203,8 @@ async function callApi(pathname, query = {}) {
 // auth gate — DEPLOY.md still advises a reverse-proxy for public hosting.)
 const AI_ROUTES = new Set([
   "/api/chat", "/api/nibras/compose", "/api/nibras/plan",
-  "/api/nibras/retrieve", "/api/semantic/groups", "/api/search/athar", "/api/rag/context",
+  "/api/nibras/retrieve", "/api/semantic/groups", "/api/search/athar",
+  "/api/search/matns", "/api/rag/context",
 ]);
 const RL_MAX = 40, RL_WINDOW = 60_000, MAX_BODY = 512 * 1024;
 const rlHits = new Map(); // ip → { n, resetAt } — fixed window, pruned every 5 min
