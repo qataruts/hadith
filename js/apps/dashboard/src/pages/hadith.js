@@ -36,6 +36,7 @@ export async function hadithPage({ args: [id], render }) {
       <div class="row">
         <button class="chip" id="tashkeel-btn" title="إظهار/إخفاء التشكيل">التشكيل</button>
         <button class="chip" id="copy-hadith" title="نسخ النص مع العزو">نسخ</button>
+        <button class="chip" id="takhrij-btn" title="دفترُ تخريجٍ كاملٌ للطباعة أو الحفظ PDF">دفتر التخريج</button>
         <span class="muted">صفحة ${fmt(h.page)}</span>
       </div>
     </div>
@@ -204,7 +205,87 @@ function renderUplift(d) {
     </div>`;
 }
 
+/** دفترُ التخريج — a self-contained, print/PDF-ready dossier of one narration:
+ *  text · recorded grade · the computed critical summary · uplift evidence ·
+ *  takhrij across books · citation. منقولٌ (أحكام العلماء) موسومٌ عن المحسوب. */
+async function openTakhrijDossier(hid, btn) {
+  const label = btn.textContent;
+  btn.textContent = "…يُجهَّز"; btn.disabled = true;
+  try {
+    const h = await api.hadith(hid);
+    const [audit, uplift, group] = await Promise.all([
+      api.nibrasAudit(hid).catch(() => null),
+      api.hadithUplift(hid).catch(() => null),
+      h.groupId ? api.group(h.groupId, 40).catch(() => null) : Promise.resolve(null),
+    ]);
+    const books = await api.books().then((b) => b.books).catch(() => []);
+    const bookName = (id) => books.find((b) => b.bookId === id)?.name ?? "";
+    const num = (n) => (n == null ? "" : new Intl.NumberFormat("ar-EG").format(n));
+    const toneWord = { good: "✔", warn: "•", bad: "✕", neutral: "◦" };
+    const nass = (h.nass || "").trim();
+
+    const signalsHtml = (audit?.signals ?? []).map((s) =>
+      `<li><b>${esc(s.label)}:</b> ${esc(s.detail)} <span class="tg">[محسوب]</span></li>`).join("");
+    const upSound = (uplift?.sound ?? []).map((s) =>
+      `<li>${esc(s.book ?? "")}${s.noInBook ? ` (${num(s.noInBook)})` : ""} — ${esc(s.hukm || "")}</li>`).join("");
+    const takhrij = (group?.books ?? []).slice(0, 30).map((b) =>
+      `${esc(b.name)} (${num(b.count)})`).join(" · ");
+    const grade = h.hukm || "";
+    const today = new Date().toLocaleDateString("ar-EG", { year: "numeric", month: "long", day: "numeric" });
+
+    const doc = `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
+      <title>دفتر تخريج — ${esc(bookName(h.bookId))} ${num(h.noInBook)}</title>
+      <style>
+        @page { margin: 2cm; }
+        body { font-family: "Amiri", "Times New Roman", serif; color: #1a1a1a; line-height: 1.9; max-width: 780px; margin: 0 auto; padding: 24px; }
+        h1 { font-size: 22px; border-bottom: 2px solid #0b6e56; padding-bottom: 6px; color: #0b6e56; }
+        h2 { font-size: 16px; color: #0b6e56; margin: 22px 0 6px; border-bottom: 1px solid #ddd; padding-bottom: 3px; }
+        .ref { color: #555; font-size: 14px; margin: 4px 0 14px; }
+        blockquote { background: #f7f4ee; border-inline-start: 4px solid #c8a24a; margin: 0; padding: 12px 16px; font-size: 17px; border-radius: 6px; }
+        ul { margin: 6px 0; padding-inline-start: 20px; } li { margin: 3px 0; font-size: 14.5px; }
+        .grade { display: inline-block; padding: 2px 12px; border-radius: 999px; background: #eef4f1; color: #0b6e56; font-weight: 700; }
+        .tg { color: #888; font-size: 11px; }
+        .verdict { font-weight: 700; font-size: 15px; }
+        footer { margin-top: 26px; border-top: 1px solid #ddd; padding-top: 10px; color: #666; font-size: 12px; }
+        .noprint { text-align: center; margin-bottom: 16px; }
+        button { font: inherit; padding: 8px 18px; border-radius: 8px; border: 1px solid #0b6e56; background: #0b6e56; color: #fff; cursor: pointer; }
+        @media print { .noprint { display: none; } }
+      </style></head><body>
+      <div class="noprint"><button onclick="window.print()">اطبعْ أو احفظْ PDF</button></div>
+      <h1>دفترُ التخريج</h1>
+      <div class="ref">${esc(bookName(h.bookId))}${h.noInBook ? ` — رقم ${num(h.noInBook)}` : ""}${h.page ? ` · صفحة ${num(h.page)}` : ""} · <span class="grade">${esc(grade)}</span></div>
+      <blockquote>${esc(nass)}</blockquote>
+      ${audit ? `<h2>الخلاصةُ النقديّة <span class="tg">(قرائنُ محسوبةٌ لا فتوى)</span></h2>
+        <div class="verdict">${esc(audit.headline || "")}</div><ul>${signalsHtml}</ul>` : ""}
+      ${uplift?.conditional ? `<h2>الارتقاءُ بالاعتبار</h2>
+        <div class="verdict">${esc(uplift.verdict)}</div>
+        ${upSound ? `<div>الطرقُ المُرقِّية:</div><ul>${upSound}</ul>` : ""}` : ""}
+      ${takhrij ? `<h2>التخريج — أخرجه أيضًا</h2><div style="font-size:14px">${takhrij}</div>` : ""}
+      <footer>مُصدَّرٌ من «الجامع — الشبكة المعرفية للحديث الشريف» بتاريخ ${today}.<br>
+        الأحكامُ والدرجاتُ منقولةٌ كما دُوِّنت؛ وما وُسِمَ «محسوب» قرائنُ من الشبكةِ توجِّهُ النظرَ لا فتوى.</footer>
+      </body></html>`;
+
+    const w = window.open("", "_blank");
+    if (!w) { alert("مُنِعت النافذةُ المنبثقة — اسمحْ بها ثم أعِدِ المحاولة."); return; }
+    w.document.write(doc); w.document.close();
+  } catch (e) {
+    alert("تعذّر تجهيزُ الدفتر: " + (e?.message ?? e));
+  } finally {
+    btn.textContent = label; btn.disabled = false;
+  }
+}
+
 document.addEventListener("page:rendered", () => {
+  // دفترُ التخريج — assemble a printable dossier on demand
+  const tb = document.getElementById("takhrij-btn");
+  if (tb && !tb.dataset.bound) {
+    tb.dataset.bound = "1";
+    const hid = Number(document.getElementById("uplift-host")?.dataset.hid
+      || document.getElementById("audit-host")?.dataset.hid
+      || (location.hash.match(/hadith\/(\d+)/) || [])[1]);
+    if (hid) tb.onclick = () => openTakhrijDossier(hid, tb);
+  }
+
   // الارتقاءُ بالاعتبار — lazy, and only renders if the isnad was conditionally graded
   const upHost = document.getElementById("uplift-host");
   if (upHost && !upHost.dataset.bound) {
