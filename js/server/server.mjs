@@ -2242,14 +2242,21 @@ const routes = {
       callApi(`/api/hadith/${hid}/contact`),
       callApi(`/api/hadith/${hid}/why`),
     ]);
-    let board = null, meaning = null;
+    let board = null, meaning = null, uplift = null, icma = null;
     if (h.groupId != null) {
-      board = await callApi(`/api/group/${h.groupId}/board`);   // corpus-wide (no scope) = full evidence
+      // one parallel fan-out — all in-process (no Gemini), corpus-wide evidence
+      [board, uplift, icma] = await Promise.all([
+        callApi(`/api/group/${h.groupId}/board`),
+        callApi(`/api/hadith/${hid}/uplift`),
+        callApi(`/api/group/${h.groupId}/icma`),
+      ]);
       const dist = kg.prepare(
         "SELECT matn_no lv, COUNT(*) c FROM hadiths WHERE group_id = ? GROUP BY matn_no ORDER BY matn_no").all(h.groupId);
       const routes = kg.prepare("SELECT COUNT(*) n FROM sanads WHERE group_id = ?").get(h.groupId).n;
       const graded = dist.filter((d) => d.lv >= 0);   // skip the ungraded (-1) level
-      meaning = { groupId: h.groupId, routes, bestLv: graded[0]?.lv };
+      const soundRoutes = dist.filter((d) => d.lv >= 0 && d.lv <= 1).reduce((s, d) => s + d.c, 0);
+      const weakRoutes = dist.filter((d) => d.lv >= 2).reduce((s, d) => s + d.c, 0);
+      meaning = { groupId: h.groupId, routes, bestLv: graded[0]?.lv, soundRoutes, weakRoutes };
     }
     let breaks = 0, suspects = 0;
     for (const s of contact?.sanads ?? []) for (const l of s.links ?? []) {
@@ -2280,9 +2287,31 @@ const routes = {
     if (meaning?.bestLv != null)
       signals.push({ label: "ثبوت المعنى", tone: meaning.bestLv <= 1 ? "good" : "neutral",
         detail: `ورد المعنى من ${meaning.routes} طريقاً، أقواها ${LV[meaning.bestLv] ?? "غير محدَّد"}` });
+    // الارتقاء بالاعتبار — did a «يحسن إذا توبع» isnad actually find its متابعة?
+    if (uplift?.conditional)
+      signals.push({ label: "الارتقاء بالاعتبار", tone: uplift.met ? "good" : "warn",
+        detail: uplift.level === "sound"
+          ? `قيل «يحسن إذا توبع» — وتحقّق الشرط: له ${uplift.counts.sound} طريقٌ صحيحٌ/حسنٌ مستقل`
+          : uplift.level === "corroborated"
+            ? `قيل «يحسن إذا توبع» — يعضده ${uplift.counts.corroborating} طرقٍ بالمجموع`
+            : "قيل «يحسن إذا توبع» — ولم يوجد ما يرقّيه في المصنَّف" });
+    // مظنّةُ المخالفة في المتن (شذوذ/نكارة) من تحليل الإسناد والمتن
+    const devN = (icma?.deviations?.munkar ?? 0) + (icma?.deviations?.shadh ?? 0);
+    if (devN)
+      signals.push({ label: "مظنّة المخالفة في المتن", tone: "warn",
+        detail: `${devN} لفظٌ يخالف المحفوظ محمولٌ على طرقٍ أضعف (مظنّة ${icma.deviations.munkar ? "نكارة" : "شذوذ"}) — انظر تحليل الإسناد والمتن` });
+    // اختلاف أحكام الطرق (تعارض) — يُحسب من توزيع الدرجات نفسه
+    if (meaning?.soundRoutes > 0 && meaning?.weakRoutes > 0)
+      signals.push({ label: "اختلاف أحكام الطرق", tone: "neutral",
+        detail: `تتفاوت أحكام طرقه: ${meaning.soundRoutes} صحيحة/حسنة و${meaning.weakRoutes} ضعيفة — انظر تعارض الأحكام` });
+    // التفرّد (فرد مطلق) — مظنّة الغرابة
+    if (meaning?.routes === 1)
+      signals.push({ label: "التفرّد", tone: "warn",
+        detail: "فردٌ لا متابعَ له في المصنَّف (مظنّة الغرابة)" });
 
     const parts = [h.hukm || GRADE_AR[gradeClass]];
     if (board?.verdict?.level === "strong") parts.push("تُوبع مدارُه");
+    else if (uplift?.level === "sound") parts.push("يرتقي بالاعتبار");
     if (meaning && meaning.bestLv <= 1 && gradeClass !== "sahih" && gradeClass !== "hasan")
       parts.push("والمعنى ثابتٌ من طرقٍ أخرى");
     if (breaks) parts.push("مع كلامٍ في اتصال بعض طرقه");
