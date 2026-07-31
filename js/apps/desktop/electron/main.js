@@ -39,7 +39,7 @@ const DB_FILES = [
   { name: "athar-embedding.db", url: `${DATASET}/athar-embedding.db`, size: 240_058_368, optional: true },
   // optional: the variant-matn tier (الطبقة الثالثة، ~230 MB) — full-matn meaning
   // search. Same graceful degradation: absent = the app simply lacks that tier.
-  { name: "matn-embedding.db", url: `${DATASET}/matn-embedding.db`, size: 231_000_000, optional: true },
+  { name: "matn-embedding.db", url: `${DATASET}/matn-embedding.db`, size: 246_755_328, optional: true },
 ];
 const REQUIRED_DBS = DB_FILES.filter((f) => !f.optional);
 

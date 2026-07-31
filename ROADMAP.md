@@ -32,6 +32,30 @@ installers + public Docker image).
   self-contained SVG (no tiles) placing cities by lat/lng, sized by narrator
   count, with weighted directional flow arcs from death_place/iqama.
 
+- **v1.18.0** — **«المُحقِّق» + طبقةُ المتون** (the verification arc): the seven
+  «المُحقِّق» stages ship together — turning scattered primitives into an آليّ
+  proved-by-evidence تحقّق, governed everywhere by **منقول** (recorded gradings,
+  verbatim) vs **محسوب** (computed قرائن/مظانّ, never a fatwa). **م١ الدمج**: the
+  الخلاصة النقديّة is now the unified file — one card with grade · board · contact
+  · meaning · uplift · شذوذ · تعارض · تفرّد. **م٢ الشذوذ**: ICMA flags a deviant
+  wording carried by weaker routes vs the sound majority (نكارة/شذوذ), with per-
+  wording grade chips. **م٣ عنعنةُ المدلسين**: reads the ACTUAL أداة between two
+  narrators in THIS narration → عنعن (مظنّة تدليس) vs صرّح (سلامة), not a generic
+  flag. **م٤ فهرسُ العلل**: a rule-based parser turns the templated hukum into a
+  browsable structured layer at `#/ilal` (9 defect types, 94% coverage). **م٥
+  الارتقاء**: a «يحسن إذا توبع» isnad → CHECKS the group for an independent
+  متابعة and shows it (validated on بئر بضاعة vs Tirmidhi's own حكم). **م٦
+  الجرح والتعديل**: a scored lexicon classifies each critic's qawl → a دفترُ ثقةٍ
+  with a «مختلَف فيه» flag (عكرمة/ابن لهيعة/سماك correctly). **م٧ دفتر التخريج**:
+  a print/PDF academic dossier. Plus **الطبقةُ الثالثة**: 300,452 distinct novel
+  marfūʿ matns embedded (variant-matn tier) → نبراس + meaning-search now rank
+  أطراف+متون+آثار in one query (finds a detail buried mid-matn that the طرف never
+  shows). Display polish: whole-chain highlighting on the isnad tree, a live matn-
+  diff route bar, i'tibar painted on the network, the طرف↔رواية display rule, and
+  a per-IP-scoped نبراس (search obeys the book scope; الاعتبار sees all, marks
+  «خارج النطاق»). A programmatic golden-rule guard (unbacked-quote/number/verdict
+  → regenerate) makes نبراس citation-proved, not citation-hopeful. Regression
+  harnesses: `test-guard.mjs` (19/19), `test-jarh.mjs` (30/30).
 - **v1.17.0** — **قائمةٌ مجمّعة + تحصينُ نقاط الذكاء** (grouped nav + guarded AI
   endpoints): the flat ten-item top bar becomes two always-visible entries
   (الرئيسية · البحث) + two fixed-positioned dropdown groups — «الأدوات» (حارس
