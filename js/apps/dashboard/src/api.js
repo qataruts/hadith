@@ -48,6 +48,7 @@ export const api = {
   book: (id, limit = 30, offset = 0) => get(`/book/${id}`, { limit, offset }),
   tafarrud: (grade, offset = 0) => get("/tafarrud", { grade, offset, limit: 40 }),
   conflicts: (minGap = 2, offset = 0) => get("/conflicts", { minGap, offset, limit: 40 }),
+  ilal: (type = "", offset = 0) => get("/ilal", { type, offset, limit: 40 }),
   nibrasCheck: (q) => get("/nibras/check", { q }),
   nibrasAudit: (id) => get(`/nibras/audit/${id}`),
   nibrasRetrieve: (q, limit = 12) => get("/nibras/retrieve", { q, limit }),

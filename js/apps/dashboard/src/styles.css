@@ -146,6 +146,9 @@ h1 { font-size: 1.9em; }
 /* «مبصرٌ في الاعتبار»: a corroborating route from outside the active book scope */
 .badge.scope-out { background: var(--surface-2); color: var(--ink-3); border: 1px dashed var(--ink-3); }
 
+/* فهرسُ العلل (م٤) — a defect-type badge on each hadith card */
+.badge.illa-badge { background: color-mix(in srgb, var(--warn) 12%, var(--surface)); color: var(--ink-2); border: 1px solid color-mix(in srgb, var(--warn) 30%, var(--hairline)); font-size: 11px; }
+
 /* مصنِّفُ الجرح والتعديل (م٦) — per-qawl class tag + مختلف فيه */
 .qawl-item { border-inline-start: 2px solid var(--hairline); padding-inline-start: 12px; }
 .qawl-item.qc-tadil { border-inline-start-color: color-mix(in srgb, var(--ok) 55%, var(--hairline)); }

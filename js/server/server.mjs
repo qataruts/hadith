@@ -1085,6 +1085,56 @@ function upliftFor(hadithId, scope = null) {
     verdict };
 }
 
+// ── قاعدةُ العلل المهيكلة (م٤) ───────────────────────────────────────────────
+// The source's hukum strings name defects in a very regular template («فيه X
+// وهو مجهول», «موضع انقطاع بين X و Y», «موضع إرسال») — so a rule-based parser
+// turns free text into a browsable, structured 3ilal layer (no LLM). 94% of
+// defective sanads classify. Types ordered by hidden→apparent severity.
+const ILAL = [
+  ["idal", "إعضال", /معضل|سقط اكثر من راو/],
+  ["irsal", "إرسال", / موضع ارسال |مرسل|ارسله/],
+  ["inqita", "انقطاع", / موضع انقطاع |منقطع|لم يسمع|لم يدرك|لم يلق/],
+  ["taleeq", "تعليق", / موضع تعليق |معلق/],
+  ["tadlis", "تدليس", /دلس|مدلس/],
+  ["wad", "اتهام بالوضع", /يضع الحديث|وضاع|كذاب|متهم بالكذب/],
+  ["nakara", "نكارة", /منكر الحديث|نكاره/],
+  ["jahala", "جهالة", /مجهول|لا يعرف/],
+  ["daif", "ضعف راوٍ", /ضعيف الحديث|سيء الحفظ|ضعفه/],
+];
+const ILAL_LABEL = Object.fromEntries(ILAL.map(([k, l]) => [k, l]));
+const ILAL_ORDER = ILAL.map(([k]) => k);
+const illaNorm = (s) => (s ?? "").replace(/[ً-ْٰـ]/g, "").replace(/[إأآ]/g, "ا").replace(/[ؤئء]/g, "").replace(/ة/g, "ه");
+function classifyIlla(hukum) {
+  const t = " " + illaNorm(hukum).replace(/\s+/g, " ").trim() + " ";
+  const types = [];
+  for (const [k, , re] of ILAL) if (re.test(t)) types.push(k);
+  const m = (hukum ?? "").match(/فيه\s+(.+?)\s+وهو\s+(?:مجهول|ضعيف|منكر|متروك|متهم|يضع)/);
+  const b = (hukum ?? "").match(/انقطاع\s+بين\s+(.+?)\s+و\s*(.+?)(?:\s*،|\s*$)/);
+  return { types, named: m ? m[1].trim() : null, breakPair: b ? [b[1].trim(), b[2].trim()] : null };
+}
+let _ilalIndex;
+function ilalIndex() {
+  if (_ilalIndex) return _ilalIndex;
+  const byType = new Map(), hadithTypes = new Map();
+  for (const r of kg.prepare(
+    `SELECT s.hadith_id hid, h.book_id bid, s.hukum FROM sanads s JOIN hadiths h ON h.id = s.hadith_id
+     WHERE s.hukum IS NOT NULL`).all()) {
+    const { types } = classifyIlla(r.hukum);
+    if (!types.length) continue;
+    let ht = hadithTypes.get(r.hid);
+    if (!ht) { ht = new Set(); hadithTypes.set(r.hid, ht); }
+    for (const t of types) {
+      if (ht.has(t)) continue;
+      ht.add(t);
+      (byType.get(t) ?? byType.set(t, []).get(t)).push({ hid: r.hid, bid: r.bid });
+    }
+  }
+  const counts = {};
+  for (const [t, a] of byType) counts[t] = a.length;
+  _ilalIndex = { byType, hadithTypes, counts };
+  return _ilalIndex;
+}
+
 // ── صيغُ الأداء وعنعنةُ المدلسين (م٣) ────────────────────────────────────────
 // A mudallis who says «عن» (not «سمعت/حدثنا») may have dropped an unheard shaykh
 // (تدليس). We read the ACTUAL wording of THIS narration — the text the source
@@ -2147,6 +2197,37 @@ const routes = {
   // علم العلل, NOT a claim the hadith is contradictory or untrustworthy. Severity
   // = the spread on the 0–5 grade scale (0 صحيح … 5 موضوع) across a hadith's
   // sanads. Defaults to gap≥2 so the routine one-degree cases don't dominate.
+  // فهرسُ العلل — browse hadith by the structured defect type parsed from the
+  // recorded hukum (م٤). No type → the chips + counts; a type → paged list.
+  "GET /api/ilal": async (u) => {
+    const idx = ilalIndex();
+    const types = ILAL_ORDER.filter((t) => idx.counts[t])
+      .map((t) => ({ key: t, label: ILAL_LABEL[t], count: idx.counts[t] }));
+    const type = u.searchParams.get("type") || "";
+    if (!type || !idx.byType.has(type)) return { types, total: 0, items: [], type: "" };
+    const limit = clamp(u.searchParams.get("limit"), 30, 100);
+    const offset = clamp(u.searchParams.get("offset"), 0, 100000000);
+    const scope = parseBookScope(u);
+    let all = idx.byType.get(type);
+    if (scope) all = all.filter((r) => scope.has(r.bid));
+    const total = all.length;
+    const per = all.slice(offset, offset + limit);
+    if (!per.length) return { types, total, items: [], type };
+    const ids = per.map((r) => r.hid);
+    const ph = ids.map(() => "?").join(",");
+    const meta = new Map();
+    for (const r of kg.prepare(
+      `SELECT id, taraf_nass taraf, book_id, no_inbook, matn grade FROM hadiths WHERE id IN (${ph})`).all(...ids))
+      meta.set(r.id, r);
+    const items = per.map((r) => {
+      const m = meta.get(r.hid) ?? {};
+      return { hadithId: r.hid, taraf: m.taraf, book: bookName.get(m.book_id),
+        noInBook: m.no_inbook, hukm: m.grade,
+        types: [...(idx.hadithTypes.get(r.hid) ?? [])].map((t) => ILAL_LABEL[t]) };
+    });
+    return { types, total, items, type };
+  },
+
   "GET /api/conflicts": async (u) => {
     const minGap = clamp(u.searchParams.get("minGap"), 2, 5);
     const limit = clamp(u.searchParams.get("limit"), 30, 100);
@@ -2612,7 +2693,7 @@ server.listen(PORT, HOST, () =>
     const top30 = bs.slice().sort((a, b) => (b.hadithQty ?? 0) - (a.hadithQty ?? 0))
       .slice(0, 30).map((b) => b.bookId);
     if (base && top30.length) { scopedStats(base, top30); console.log("warmed default scope stats"); }
-    conflictIndex(); rawiIndex(); groupGradeIndex();   // heavy one-time scans, in the background
-    console.log("warmed conflict + rawi + group-grade indexes");
+    conflictIndex(); rawiIndex(); groupGradeIndex(); ilalIndex();   // heavy one-time scans, in the background
+    console.log("warmed conflict + rawi + group-grade + ilal indexes");
   } catch (e) { console.warn("scope warm skipped:", e.message); }
 })();
