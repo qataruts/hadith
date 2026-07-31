@@ -17,6 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { coll, normalizeArabic } from "../shared/monlite-schemas.mjs";
 import { SURA_NO, SURA_NAME } from "../shared/sura-map.mjs";
+import { classifyQawl, aggregateRawi } from "../shared/jarh-lexicon.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const arg = (name, dflt) => {
@@ -1959,8 +1960,15 @@ const routes = {
          JOIN sanads s ON s.id = sr.sanad_id JOIN hadiths h ON h.id = s.hadith_id
          WHERE sr.rawi_id = ? AND sr.pos > 0${clause}`).get(Number(id), ...params).n;
     }
+    // مصنِّفُ الجرح والتعديل (م٦): tag each qawl + aggregate a leaning + مختلف فيه.
+    // Computed live from the rawi's own aqwal (no precompute/Gemini). The raw text
+    // stays visible; the class is a محسوب aid, never a replacement for the نصّ.
+    const aqwal = (r.aqwal ?? []).map((a) => ({ ...a, ...classifyQawl(a.qawl) }));
+    const jarh = aggregateRawi((r.aqwal ?? []).map((a) => a.qawl));
     return {
       ...r,
+      aqwal,
+      jarh,
       teachers: q.teachers.all(r.rawiId, 15),
       students: q.students.all(r.rawiId, 15),
       scopedNarrations,          // narrations within the selected books (if scoped)

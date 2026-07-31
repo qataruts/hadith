@@ -4,6 +4,27 @@ import { esc, fmt, rankBadge, hijri } from "../util.js";
 import { bars } from "../components/charts.js";
 import { hadithCard } from "../components/cards.js";
 
+// مصنِّفُ الجرح والتعديل (م٦): a per-qawl class tag + a دفترُ ثقةٍ summary.
+const QCLASS = { tadil: ["تعديل", "var(--ok)"], jarh: ["جرح", "var(--critical)"],
+  jahala: ["جهالة", "var(--warn)"], none: ["", ""] };
+const qawlTag = (a) => {
+  if (a.cls === "none" || !a.term) return "";
+  const [label, color] = QCLASS[a.cls];
+  return `<span class="qc-tag" style="--qc:${color}" title="لفظُ حكمٍ محسوب: ${esc(a.term)}">${label}</span>`;
+};
+function jarhSummary(j) {
+  if (!j || j.verdicts === 0) return j?.jahala
+    ? `<span class="badge grade-daif">مجهولٌ عند النقّاد</span>` : "";
+  const LEAN = { tadil: ["الأكثرُ على توثيقه", "grade-sahih"], jarh: ["الأكثرُ على تجريحه", "grade-daif"],
+    mixed: ["تعادلَ فيه القولان", ""], jahala: ["", ""] };
+  const [txt, cls] = LEAN[j.lean] ?? ["", ""];
+  return `<span class="row" style="gap:6px;flex-wrap:wrap">
+    ${j.mukhtalaf ? `<span class="badge mukhtalaf" title="له موثِّقون ومجرِّحون معتبَرون">مختلَفٌ فيه</span>` : ""}
+    ${txt ? `<span class="badge ${cls}">${txt}</span>` : ""}
+    <span class="tag-count">موثِّق ${fmt(j.tadil)} · مجرِّح ${fmt(j.jarh)}${j.jahala ? ` · جهالة ${fmt(j.jahala)}` : ""}</span>
+  </span>`;
+}
+
 export async function rawiPage({ args: [id], params, render }) {
   const r = await api.rawi(id);
   if (!r) return `<div class="empty">الراوي غير موجود</div>`;
@@ -63,13 +84,19 @@ export async function rawiPage({ args: [id], params, render }) {
 
   ${(r.aqwal ?? []).length ? `
   <div class="card" style="margin-top:14px">
-    <h3>أقوال النقّاد فيه <span class="tag-count">${fmt(r.aqwal.length)}</span></h3>
-    <div class="grid grid-2" style="margin-top:10px">
+    <div class="spread" style="align-items:center;flex-wrap:wrap;gap:8px">
+      <h3 style="margin:0">أقوال النقّاد فيه <span class="tag-count">${fmt(r.aqwal.length)}</span></h3>
+      ${jarhSummary(r.jarh)}
+    </div>
+    <div class="grid grid-2" style="margin-top:12px">
       ${r.aqwal.map((a) => `
-        <div style="border-right:2px solid var(--hairline);padding-right:12px">
-          <div>«${esc(a.qawl)}»</div>
+        <div class="qawl-item qc-${a.cls}">
+          <div>«${esc(a.qawl)}» ${qawlTag(a)}</div>
           <a class="muted" href="#/alem/${a.alemId}">— ${esc(a.alem)}</a>
         </div>`).join("")}
+    </div>
+    <div class="muted" style="font-size:12px;margin-top:10px">
+      التصنيفُ قرينةٌ <b>محسوبةٌ</b> من ألفاظ النقّاد المعروفة تُعينُ على الموازنة — والنصُّ الأصليُّ هو الأصل، والترجيحُ لأهلِ الشأن.
     </div>
   </div>` : ""}
 

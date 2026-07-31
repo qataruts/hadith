@@ -146,6 +146,18 @@ h1 { font-size: 1.9em; }
 /* «مبصرٌ في الاعتبار»: a corroborating route from outside the active book scope */
 .badge.scope-out { background: var(--surface-2); color: var(--ink-3); border: 1px dashed var(--ink-3); }
 
+/* مصنِّفُ الجرح والتعديل (م٦) — per-qawl class tag + مختلف فيه */
+.qawl-item { border-inline-start: 2px solid var(--hairline); padding-inline-start: 12px; }
+.qawl-item.qc-tadil { border-inline-start-color: color-mix(in srgb, var(--ok) 55%, var(--hairline)); }
+.qawl-item.qc-jarh { border-inline-start-color: color-mix(in srgb, var(--critical) 55%, var(--hairline)); }
+.qawl-item.qc-jahala { border-inline-start-color: color-mix(in srgb, var(--warn) 55%, var(--hairline)); }
+.qc-tag {
+  display: inline-block; font-size: 10.5px; font-weight: 700; line-height: 1; padding: 2px 7px;
+  border-radius: 999px; color: var(--qc); vertical-align: middle; margin-inline-start: 4px;
+  background: color-mix(in srgb, var(--qc) 13%, var(--surface)); border: 1px solid color-mix(in srgb, var(--qc) 38%, transparent);
+}
+.badge.mukhtalaf { background: color-mix(in srgb, var(--gold) 16%, var(--surface)); color: var(--gold); border: 1px solid color-mix(in srgb, var(--gold) 45%, transparent); font-weight: 700; }
+
 /* الارتقاءُ بالاعتبار (م٥) — did a «يحسن إذا توبع» isnad find its متابعة? */
 .uplift { --uc: var(--warn); border-inline-start: 5px solid var(--uc); }
 .uplift-ok { --uc: var(--ok); }
